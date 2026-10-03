@@ -1,0 +1,4 @@
+/* The card face typeface from card animation (Gilroy there; system fallbacks here). */
+.font-card {
+  font-family: "Gilroy", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}

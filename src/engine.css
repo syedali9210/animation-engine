@@ -1,0 +1,461 @@
+@import "tailwindcss";
+@source ".";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+  Colour system
+  - Neutrals: Radix-style slate, cool with a hint of blue so they sit with the iris accent (analogous hues).
+  - Elevation by lightness: canvas < surface < overlay. Light mode adds soft shadows; dark mode leans on
+    hairline borders and a faint top highlight, because shadows disappear on dark.
+  - Accent is for values and the one primary action (slider fill, switches, Export, focus). Selection and
+    navigation stay neutral.
+  - Every text token passes WCAG AA (4.5:1) on the surfaces it is used on.
+*/
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-overlay: var(--overlay);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: #ffffff;
+  --color-good: var(--good);
+  --color-good-ink: var(--good-ink);
+  --color-warn: var(--warn);
+  --color-warn-ink: var(--warn-ink);
+  --color-bad: var(--bad);
+  --color-bad-ink: var(--bad-ink);
+  --color-control-off: var(--control-off);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Code", monospace;
+
+  /* type scale: one name per job, so sizes stop drifting */
+  --text-micro: 11px;
+  --text-micro--line-height: 14px;
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+  --text-body: 13px;
+  --text-body--line-height: 18px;
+  --text-ui: 14px;
+  --text-ui--line-height: 20px;
+  --text-title: 15px;
+  --text-title--line-height: 20px;
+  --text-heading: 18px;
+  --text-heading--line-height: 24px;
+
+  --shadow-xs: var(--sh-xs);
+  --shadow-sm: var(--sh-sm);
+  --shadow-md: var(--sh-md);
+  --shadow-lg: var(--sh-lg);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+:root {
+  color-scheme: light;
+  --canvas: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f3f3f6;
+  --surface-3: #e8e8ed;
+  --overlay: #ffffff;
+  --line: rgb(0 0 40 / 0.08);
+  --line-strong: rgb(0 0 40 / 0.15);
+  --fg: #1c2024; /* 16:1 on white */
+  --fg-2: #5b5f68; /* 6.4:1 */
+  --fg-3: #70747d; /* 4.7:1 — on surfaces only, not the canvas */
+  --accent: #5b5bd6;
+  --accent-hover: #5151cd;
+  --accent-ink: #5753c6;
+  --accent-soft: rgb(91 91 214 / 0.1);
+  --good: #30a46c;
+  --good-ink: #218358;
+  --warn: #e8a10c;
+  --warn-ink: #9a5b00;
+  --bad: #e5484d;
+  --bad-ink: #ce2c31;
+  --control-off: #c6c8d1;
+  --track-off: #e1e1e8;
+  --tip-bg: #1c2024;
+  --tip-fg: #ffffff;
+  --veil: #f5f5f7;
+  --sh-xs: 0 1px 2px rgb(16 20 40 / 0.05);
+  --sh-sm: 0 1px 2px rgb(16 20 40 / 0.08), 0 0 0 0.5px rgb(16 20 40 / 0.06);
+  --sh-md: 0 0 0 1px var(--line), 0 2px 4px -1px rgb(16 20 40 / 0.05), 0 10px 24px -6px rgb(16 20 40 / 0.12);
+  --sh-lg: 0 0 0 1px var(--line), 0 6px 12px -4px rgb(16 20 40 / 0.06), 0 28px 56px -16px rgb(16 20 40 / 0.2);
+  /* devices: a tight contact shadow plus one soft ambient layer, nothing muddy */
+  --sh-device: 0 1px 1px rgb(16 20 40 / 0.06), 0 6px 12px -6px rgb(16 20 40 / 0.12), 0 24px 48px -20px rgb(16 20 40 / 0.22);
+}
+.dark {
+  color-scheme: dark;
+  --canvas: #111113;
+  --surface: #18191b;
+  --surface-2: #212225;
+  --surface-3: #2b2d31;
+  --overlay: #1d1e21;
+  --line: rgb(255 255 255 / 0.07);
+  --line-strong: rgb(255 255 255 / 0.13);
+  --fg: #edeef0;
+  --fg-2: #b0b4ba; /* 8.4:1 on surface */
+  --fg-3: #868a93; /* 5.1:1 */
+  --accent: #5b5bd6;
+  --accent-hover: #6e6ade;
+  --accent-ink: #b1a9ff;
+  --accent-soft: rgb(110 106 222 / 0.2);
+  --good: #30a46c;
+  --good-ink: #3dd68c;
+  --warn: #ffc53d;
+  --warn-ink: #ffca16;
+  --bad: #e5484d;
+  --bad-ink: #ff9592;
+  --control-off: #43464d;
+  --track-off: #33353b;
+  --tip-bg: #2e3035;
+  --tip-fg: #edeef0;
+  --veil: #111113;
+  --sh-xs: 0 0 #0000;
+  --sh-sm: 0 1px 2px rgb(0 0 0 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --sh-md: 0 0 0 1px var(--line-strong), 0 12px 32px -8px rgb(0 0 0 / 0.6);
+  --sh-lg: 0 0 0 1px var(--line-strong), 0 28px 64px -16px rgb(0 0 0 / 0.7);
+  --sh-device: 0 1px 1px rgb(0 0 0 / 0.5), 0 24px 48px -20px rgb(0 0 0 / 0.7);
+}
+
+/* in layers, so Tailwind utilities can always override them */
+@layer base {
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+  }
+  #root {
+    height: 100%;
+    height: 100dvh;
+  }
+  body {
+    overflow: hidden;
+    background: var(--canvas);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 18px;
+    font-feature-settings: "cv11", "ss01", "ss03";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+  }
+  * {
+    border-color: var(--line);
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .mono {
+    font-family: var(--font-mono);
+    font-feature-settings: normal;
+  }
+
+  .skip-link {
+    position: fixed;
+    left: 12px;
+    top: -60px;
+    z-index: 100;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--fg);
+    color: var(--surface);
+    font-weight: 500;
+  }
+  .skip-link:focus {
+    top: 12px;
+  }
+}
+
+@layer components {
+  /* pressables answer the press: 0.97 on :active, 160ms ease-out (Emil) */
+  .press {
+    transition:
+      transform 160ms var(--ease-out),
+      background-color 120ms ease,
+      color 120ms ease,
+      box-shadow 120ms ease,
+      opacity 120ms ease;
+  }
+  .press:active {
+    transform: scale(0.97);
+  }
+
+  /* scroll containers are also the containing block, so absolutely placed children (sr-only labels)
+     get clipped with the content instead of widening the page */
+  .scroll-thin,
+  .no-scrollbar {
+    position: relative;
+  }
+  .scroll-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ---- slider: accent fill up to --p, white knob ---- */
+  .range {
+    --track: 4px;
+    --thumb: 16px;
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: 24px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  .range-lg {
+    --track: 6px;
+    --thumb: 26px;
+    height: 40px;
+  }
+  .range::-webkit-slider-runnable-track {
+    height: var(--track);
+    border-radius: 999px;
+    background: linear-gradient(to right, var(--accent) var(--p), var(--track-off) var(--p));
+  }
+  .range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: var(--thumb);
+    height: var(--thumb);
+    margin-top: calc((var(--track) - var(--thumb)) / 2);
+    border-radius: 50%;
+    background: #fff;
+    box-shadow:
+      0 0 0 1px rgb(16 20 40 / 0.14),
+      0 1px 3px rgb(16 20 40 / 0.22);
+    transition: transform 160ms var(--ease-out);
+  }
+  .range::-moz-range-track {
+    height: var(--track);
+    border-radius: 999px;
+    background: var(--track-off);
+  }
+  .range::-moz-range-progress {
+    height: var(--track);
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  .range::-moz-range-thumb {
+    width: var(--thumb);
+    height: var(--thumb);
+    border: 0;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow:
+      0 0 0 1px rgb(16 20 40 / 0.14),
+      0 1px 3px rgb(16 20 40 / 0.22);
+  }
+  .range:active::-webkit-slider-thumb {
+    transform: scale(1.1);
+  }
+  .range:focus-visible {
+    outline: none;
+  }
+  .range:focus-visible::-webkit-slider-thumb {
+    box-shadow:
+      0 0 0 2px var(--surface),
+      0 0 0 4px var(--accent);
+  }
+  .range:focus-visible::-moz-range-thumb {
+    box-shadow:
+      0 0 0 2px var(--surface),
+      0 0 0 4px var(--accent);
+  }
+
+  /* ---- tooltip: delay the first, instant after that, grows from its trigger (Emil) ---- */
+  .tip {
+    --tx: -50%;
+    position: absolute;
+    left: 50%;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    pointer-events: none;
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 500;
+    color: var(--tip-fg);
+    background: var(--tip-bg);
+    box-shadow: var(--sh-md);
+    transform: translateX(var(--tx));
+    transition:
+      opacity 125ms var(--ease-out),
+      transform 125ms var(--ease-out);
+  }
+  .tip-bottom {
+    top: calc(100% + 8px);
+    transform-origin: top center;
+    --ty: -3px;
+  }
+  .tip-top {
+    bottom: calc(100% + 8px);
+    transform-origin: bottom center;
+    --ty: 3px;
+  }
+  .tip-end {
+    left: auto;
+    right: 0;
+    --tx: 0px;
+    transform-origin: top right;
+  }
+  @starting-style {
+    .tip {
+      opacity: 0;
+      transform: translateX(var(--tx)) translateY(var(--ty)) scale(0.97);
+    }
+  }
+  .tip[data-instant="true"] {
+    transition: none;
+  }
+  .tip kbd {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    opacity: 0.6;
+  }
+
+  /* ---- dialogs (native <dialog>: focus trap, Escape and inert page for free) ---- */
+  dialog {
+    padding: 0;
+    border: 0;
+    color: var(--fg);
+  }
+  dialog::backdrop {
+    background: rgb(8 10 20 / 0);
+    transition:
+      background-color 200ms ease,
+      overlay 200ms allow-discrete,
+      display 200ms allow-discrete;
+  }
+  dialog[open]::backdrop {
+    background: rgb(8 10 20 / 0.36);
+  }
+  @starting-style {
+    dialog[open]::backdrop {
+      background: rgb(8 10 20 / 0);
+    }
+  }
+  /* drawer: in on the iOS drawer curve, out faster */
+  dialog.drawer {
+    margin: 0;
+    max-width: none;
+    max-height: none;
+    height: 100%;
+    width: min(320px, 88vw);
+    background: var(--surface);
+    box-shadow: var(--sh-lg);
+    transform: translateX(-100%);
+    transition:
+      transform 200ms var(--ease-drawer),
+      overlay 200ms allow-discrete,
+      display 200ms allow-discrete;
+  }
+  dialog.drawer[open] {
+    transform: none;
+    transition-duration: 320ms;
+  }
+  @starting-style {
+    dialog.drawer[open] {
+      transform: translateX(-100%);
+    }
+  }
+  dialog.modal {
+    margin: auto;
+    width: min(460px, calc(100vw - 32px));
+    max-height: min(640px, calc(100dvh - 32px));
+    border-radius: 16px;
+    background: var(--overlay);
+    box-shadow: var(--sh-lg);
+    opacity: 0;
+    transform: scale(0.97);
+    transition:
+      opacity 150ms var(--ease-out),
+      transform 150ms var(--ease-out),
+      overlay 150ms allow-discrete,
+      display 150ms allow-discrete;
+  }
+  dialog.modal[open] {
+    opacity: 1;
+    transform: none;
+    transition-duration: 200ms;
+  }
+  @starting-style {
+    dialog.modal[open] {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+  }
+
+  /* ---- phone bottom sheet (non-modal: the tab bar under it stays live) ---- */
+  .sheet {
+    transform: translateY(100%);
+    visibility: hidden;
+    transition:
+      transform 220ms var(--ease-drawer),
+      visibility 0s linear 220ms;
+  }
+  .sheet[data-open="true"] {
+    transform: none;
+    visibility: visible;
+    transition:
+      transform 400ms var(--ease-drawer),
+      visibility 0s;
+  }
+  .scrim {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 220ms ease;
+  }
+  .scrim[data-open="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .press,
+    .press:active,
+    .range::-webkit-slider-thumb,
+    .tip,
+    dialog,
+    dialog::backdrop,
+    .sheet,
+    .sheet[data-open="true"],
+    .scrim {
+      transition-duration: 0s !important;
+      transition-delay: 0s !important;
+    }
+    .press:active,
+    .range:active::-webkit-slider-thumb {
+      transform: none;
+    }
+  }
+}

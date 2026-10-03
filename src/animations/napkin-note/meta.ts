@@ -1,0 +1,38 @@
+import type { AnimMeta } from "../../registry";
+
+export default {
+  name: "Napkin Note",
+  category: "Shaders & GPU",
+  tech: ["Three.js", "WebGL", "GLSL", "Instancing"],
+  blurb: "A folded cloth napkin swoops in, opens out, and a needle embroiders your message stitch by stitch.",
+  source: "Desktop/experiment animation/motiscope-output/cloth/index.html",
+  behavior: { trigger: "sequence", frequency: "rare" },
+  reducedMotion: "full",
+  reducedMotionNote: "The napkin arrives already open, time stands still, the needle is hidden and the send-off skips straight to the next napkin.",
+  html: true,
+  layout: "fill",
+  params: {
+    demo: "Thank you for the tea",
+    unfold: "Random",
+    floss: "#28379a",
+    cloth: "#e6e0d6",
+    grain: 0.06,
+    wave: 1,
+    swoopMs: 650,
+    unfoldMs: 1800,
+    hemMs: 4400,
+    dprCap: 2,
+  },
+  schema: {
+    demo: { type: "text", label: "Demo message", group: "Content", reload: true, hint: "Sewn automatically on load. Leave empty to only hem." },
+    unfold: { type: "select", label: "Unfold style", group: "Content", options: ["Random", "quarters", "letter", "triangle", "envelope", "crumple", "fan"], reload: true },
+    floss: { type: "color", label: "Lettering floss", group: "Color", hint: "Applies to the next message sewn." },
+    cloth: { type: "color", label: "Cloth", group: "Color" },
+    grain: { type: "number", label: "Film grain", group: "Color", min: 0, max: 0.2, step: 0.005 },
+    wave: { type: "number", label: "Arrival ripple", group: "Motion", min: 0, max: 3, step: 0.05 },
+    swoopMs: { type: "number", label: "Swoop in", group: "Motion", min: 200, max: 2000, step: 10, unit: "ms", reload: true },
+    unfoldMs: { type: "number", label: "Unfold", group: "Motion", min: 300, max: 4000, step: 50, unit: "ms", reload: true },
+    hemMs: { type: "number", label: "Hem sewing", group: "Motion", min: 1000, max: 12000, step: 100, unit: "ms", reload: true },
+    dprCap: { type: "number", label: "Pixel ratio cap", group: "Performance", min: 0.5, max: 3, step: 0.25, role: "dpr", reload: true },
+  },
+} satisfies Omit<AnimMeta, "id">;

@@ -1,0 +1,97 @@
+/* Ported from github.com/syedali9210/animation-chat. Its source scoped these
+   as page-wide `:root` tokens — `--card`, `--muted`, `--ring` etc. would
+   collide with (and override) the portfolio's own theme tokens of the same
+   name. Scoped to `.chat-quiz` instead so it only themes itself. */
+.chat-quiz {
+  color-scheme: dark;
+  --card: #141418;
+  --edge: rgba(255, 255, 255, 0.07);
+  --hair: rgba(255, 255, 255, 0.14);
+  --chip: rgba(255, 255, 255, 0.055);
+  --hover: rgba(255, 255, 255, 0.05);
+  --title: #fafafa;
+  --text: #e7e7ea;
+  --muted: #8b8b93;
+  --faint: #52525b;
+  --ring: #4b4b52;
+  --btn: rgba(18, 18, 22, 0.8);
+  --btn-edge: rgba(255, 255, 255, 0.12);
+  --send: #212129;
+  --send-on: #fafafa;
+  --send-ink: #a1a1aa;
+  --send-ink-on: #0a0a0a;
+  --shadow: 0 24px 70px -24px rgba(0, 0, 0, 0.9);
+  --shadow-up: 0 -10px 28px -14px rgba(0, 0, 0, 0.95), 0 24px 70px -24px rgba(0, 0, 0, 0.9);
+  --scroll: #3f3f46;
+  --shim-hi: #ffffff;
+  --sel: rgba(255, 255, 255, 0.055);
+  --sel-ink: #d2d2d9;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Shimmer sweep for the in-progress line. The gradient is clipped to the glyphs,
+   so the highlight travels through the letterforms rather than behind them.
+   --shim-base is set per element (the step's own tint). */
+.chat-quiz .shimmer {
+  background-image: linear-gradient(100deg, var(--shim-base) 34%, var(--shim-hi) 50%, var(--shim-base) 66%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: chat-quiz-shimmer 2.4s linear infinite;
+}
+@keyframes chat-quiz-shimmer {
+  from {
+    background-position: 220% 0;
+  }
+  to {
+    background-position: -220% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-quiz .shimmer {
+    animation: none;
+    color: var(--shim-base);
+    -webkit-text-fill-color: var(--shim-base);
+  }
+}
+
+/* thin scroll indicator on the options list, like the source */
+.chat-quiz .thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll) transparent;
+}
+.chat-quiz .thin-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+.chat-quiz .thin-scroll::-webkit-scrollbar-thumb {
+  background: var(--scroll);
+  border-radius: 999px;
+}
+
+/* Light theme, from the standalone source's :root[data-theme='light'] tokens. */
+:root[data-theme="light"] .chat-quiz {
+  color-scheme: light;
+  --card: #ffffff;
+  --edge: rgba(0, 0, 0, 0.08);
+  --hair: rgba(0, 0, 0, 0.05);
+  --chip: rgba(0, 0, 0, 0.045);
+  --hover: rgba(0, 0, 0, 0.04);
+  --title: #0b0b0d;
+  --text: #26262a;
+  --muted: #71717a;
+  --faint: #a1a1aa;
+  --ring: #c4c4cc;
+  --btn: rgba(255, 255, 255, 0.85);
+  --btn-edge: rgba(0, 0, 0, 0.12);
+  --send: #e9e9ee;
+  --send-on: #18181b;
+  --send-ink: #71717a;
+  --send-ink-on: #ffffff;
+  --shadow: 0 20px 50px -22px rgba(0, 0, 0, 0.25);
+  --shadow-up: 0 -8px 22px -14px rgba(0, 0, 0, 0.22), 0 20px 50px -22px rgba(0, 0, 0, 0.25);
+  --scroll: #d4d4d8;
+  --shim-hi: #0b0b0d;
+  --sel: rgba(0, 0, 0, 0.05);
+  --sel-ink: #3f3f46;
+}

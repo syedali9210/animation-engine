@@ -1,0 +1,36 @@
+import type { AnimMeta } from "../../registry";
+
+export default {
+  name: "Hello",
+  category: "Characters",
+  tech: ["Web Component", "SVG", "CSS", "Springs"],
+  blurb: "A tiny mascot way too hyped to see you — tracks your cursor, reaches toward it, cheers on click.",
+  source: "Desktop/portfolio v2/public/scripts/pet-buddy.js",
+  behavior: { trigger: "ambient", frequency: "occasional" },
+  reducedMotion: "full",
+  reducedMotionNote: "Blink, sparkle and hop keyframes are switched off; the eyes still follow the cursor so it stays responsive.",
+  html: true,
+  assets: ["/anim/pet-buddy-greeting/pet-buddy.js"],
+  params: {
+    text: "Hii! 👋",
+    size: 120,
+    fps: 12,
+    body: "#db744f",
+    highlight: "#ec9a78",
+    shade: "#b95a3c",
+    shadeDark: "#8f4530",
+    signBg: "",
+    signText: "",
+  },
+  schema: {
+    text: { type: "text", label: "Sign text", group: "Content" },
+    size: { type: "number", label: "Size", group: "Content", min: 60, max: 320, unit: "px" },
+    fps: { type: "number", label: "Arcade frame rate", group: "Motion", min: 4, max: 60, unit: "fps", hint: "The rig deliberately renders on a 12fps tick, like a sprite." },
+    body: { type: "color", label: "Body", group: "Color" },
+    highlight: { type: "color", label: "Highlight", group: "Color" },
+    shade: { type: "color", label: "Shade", group: "Color" },
+    shadeDark: { type: "color", label: "Deep shade", group: "Color" },
+    signBg: { type: "color", label: "Sign", group: "Color", hint: "Auto follows the theme." },
+    signText: { type: "color", label: "Sign text", group: "Color" },
+  },
+} satisfies Omit<AnimMeta, "id">;

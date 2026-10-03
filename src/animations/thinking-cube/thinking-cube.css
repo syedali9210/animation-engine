@@ -1,0 +1,22 @@
+/* "Thinking" label shimmer, from card animation/src/app/globals.css */
+@keyframes thinking-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+.thinking-shimmer {
+  background: linear-gradient(90deg, var(--muted-foreground) 0%, var(--muted-foreground) 42%, var(--foreground) 50%, var(--muted-foreground) 58%, var(--muted-foreground) 100%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thinking-shimmer 2.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-shimmer {
+    background: none;
+    -webkit-text-fill-color: currentColor;
+    color: var(--foreground);
+    animation: none;
+  }
+}

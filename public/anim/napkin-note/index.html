@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="/engine-bridge.js"></script>
+<title>Napkin Note</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&family=Mrs+Saint+Delafield&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#000; --text:#f4f1ea; --muted:#8f8b84; --panel:rgba(20,20,22,.8); --line:rgba(255,255,255,.1); --field:rgba(255,255,255,.05); --accent:#3450f0 }
+  :root[data-theme="light"] { --bg:#e8e6e1; --text:#1c1b19; --muted:#6f6b65; --panel:rgba(255,255,255,.82); --line:rgba(0,0,0,.1); --field:rgba(0,0,0,.04) }
+  * { box-sizing:border-box }
+  html, body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:var(--text); font:14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif }
+  canvas { display:block; width:100%; height:100% }
+  .composer { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); width:min(660px, calc(100% - 32px));
+    background:var(--panel); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); border:1px solid var(--line); border-radius:20px; padding:12px 14px; display:grid; gap:8px }
+  .composer label.hint { color:var(--muted); font-size:12px; min-height:1.4em }
+  textarea { width:100%; resize:none; background:transparent; border:0; color:var(--text); font:600 24px/1.25 "Caveat", "Segoe Print", cursive; min-height:2.6em; outline:none; padding:0 }
+  textarea::placeholder { color:#6f6b65 }
+  #sign { width:100%; height:38px; background:var(--field); border:1px solid var(--line); border-radius:10px; color:var(--text); padding:2px 10px; font:30px/1 "Mrs Saint Delafield", "Segoe Script", cursive; outline:none }
+  #sign::placeholder { font:13px system-ui, sans-serif; color:#6f6b65 }
+  .row { display:flex; align-items:center; gap:6px; flex-wrap:wrap }
+  .feel { display:flex; align-items:center; gap:6px; padding:3px 11px 3px 3px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--muted); font:inherit; font-size:13px; cursor:pointer }
+  .feel img { width:26px; height:26px; border-radius:50%; background:#e9e6df }
+  .feel[aria-pressed="true"] { color:var(--text); border-color:color-mix(in srgb, var(--text) 38%, transparent); background:var(--field) }
+  .send { margin-left:auto; display:flex; align-items:center; gap:10px }
+  .count { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums }
+  .send button { background:var(--accent); color:#fff; border:0; border-radius:999px; padding:8px 18px; font:600 14px system-ui, sans-serif; cursor:pointer }
+  .send button:disabled { opacity:.45; cursor:default }
+  button:focus-visible, textarea:focus-visible, #sign:focus-visible { outline:2px solid var(--text); outline-offset:2px }
+  .toast { position:fixed; top:18px; left:50%; transform:translate(-50%, -16px); opacity:0; pointer-events:none; transition:opacity .35s, transform .35s;
+    background:var(--panel); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); border:1px solid var(--line); border-radius:14px; padding:10px 14px; display:flex; gap:10px; align-items:center; max-width:calc(100% - 32px) }
+  .toast.show { opacity:1; transform:translate(-50%, 0); pointer-events:auto }
+  .toast input { width:min(320px, 50vw); background:var(--field); border:1px solid var(--line); border-radius:8px; color:var(--muted); padding:5px 8px; font:12px ui-monospace, monospace }
+  .toast button { background:transparent; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:5px 10px; font:inherit; cursor:pointer }
+  @media (max-width:560px) { .send { width:100%; justify-content:flex-end } }
+  @media (prefers-reduced-motion: reduce) { .toast { transition:none } }
+</style>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }</script>
+</head>
+<body>
+<canvas role="img" aria-label="A folded cloth napkin opens out and a needle sews its hem"></canvas>
+
+<form class="composer" autocomplete="off">
+  <label class="hint" for="msg" id="hint">Unfolding a fresh napkin…</label>
+  <textarea id="msg" rows="2" maxlength="90" placeholder="Write something to sew…"></textarea>
+  <input id="sign" maxlength="24" placeholder="Sign your name (optional)" aria-label="Signature">
+  <div class="row">
+    <div class="row" role="group" aria-label="Feeling to embroider" id="feelings"></div>
+    <div class="send"><span class="count" id="count">0/90</span><button type="submit" id="sendBtn">Sew &amp; send</button></div>
+  </div>
+</form>
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span id="toastText">Sent</span>
+  <input id="toastLink" readonly aria-label="Link to this napkin">
+  <button type="button" id="copyBtn">Copy link</button>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* @engine:params */
+const params = {
+  demo: "Thank you for the tea",
+  unfold: "Random",
+  floss: "#28379a",
+  cloth: "#e6e0d6",
+  grain: 0.06,
+  wave: 1,
+  swoopMs: 650,
+  unfoldMs: 1800,
+  hemMs: 4400,
+  dprCap: 2
+};
+/* @engine:end */
+const hex3 = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const TAU = Math.PI * 2;
+
+// ---------- timing ----------
+// measured from cloth.mp4 (motiscope): the send-off burst -- corner peel then an accelerating exit to the top-left
+const PEEL = [0, 450], EXIT = [300, 700];
+function bezier(x1, y1, x2, y2) { // cubic-bezier(t) like CSS
+  const f = (t, a, b) => 3 * a * t * (1 - t) ** 2 + 3 * b * t * t * (1 - t) + t ** 3;
+  return x => {
+    if (x <= 0 || x >= 1) return Math.max(0, Math.min(1, x));
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 24; i++) { const m = (lo + hi) / 2; f(m, x1, x2) < x ? lo = m : hi = m; }
+    return f((lo + hi) / 2, y1, y2);
+  };
+}
+const easeIn = bezier(.42, 0, 1, 1);          // measured
+const easeOut = bezier(.25, .46, .45, .94);   // landing decay, derived from the clip's energy curve
+const easeInOut = bezier(.65, 0, .35, 1);     // unfolding (designed)
+const span = (t, [a, b]) => Math.max(0, Math.min(1, (t - a) / (b - a)));
+const lerp = (a, b, k) => a + (b - a) * k;
+const clamp01 = v => Math.max(0, Math.min(1, v));
+// intro (designed): swoop in folded, open out, then the needle sews the hem
+const SWOOP = [0, params.swoopMs], UNFOLD = [450, 450 + params.unfoldMs], HEM_AT = 550 + params.unfoldMs, HEM_MS = params.hemMs;
+
+// ---------- cloth height: folded hem on all four edges + pressed quarter-fold lines (the weave is procedural) ----------
+function clothHeight() {
+  const S = 1024, c = Object.assign(document.createElement('canvas'), { width: S, height: S }), x = c.getContext('2d');
+  const g = v => `rgb(${v * 255 | 0},${v * 255 | 0},${v * 255 | 0})`;
+  const frame = inset => x.strokeRect(inset, inset, S - inset * 2, S - inset * 2);
+  x.fillStyle = g(.5); x.fillRect(0, 0, S, S);
+  const hem = S * .055;
+  x.strokeStyle = g(.66); x.lineWidth = hem * 2; frame(0);
+  x.strokeStyle = g(.34); x.lineWidth = 4; frame(hem + 3);
+  x.strokeStyle = g(.44); x.lineWidth = 10;
+  x.beginPath(); x.moveTo(S / 2, hem); x.lineTo(S / 2, S - hem); x.moveTo(hem, S / 2); x.lineTo(S - hem, S / 2); x.stroke();
+  const o = Object.assign(document.createElement('canvas'), { width: S, height: S }), y = o.getContext('2d');
+  y.filter = 'blur(1.5px)'; y.drawImage(c, 0, 0);
+  return Object.assign(new THREE.CanvasTexture(o), { anisotropy: 8 });
+}
+
+// ---------- shared GLSL: how the sheet bends (used by the cloth and by every stitch, so thread rides the cloth) ----------
+const DEFORM = /* glsl */`
+uniform float uTime, uWave, uCrumple, uFan;
+uniform vec4 uF0, uF1, uF2, uF3; // folds applied in order: (direction angle, line offset, radius, angle)
+float foldAmt;
+float hash(vec2 p) { vec3 q = fract(vec3(p.xyx) * .1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + 1.), f.x), f.y);
+}
+float ridge(float x) { float s = .5 + .5 * cos(x); return s * s; }
+float wrinkles(vec2 p, float t) { // meandering soft folds in three directions + the pressed quarter-fold tent
+  vec2 q = p + (vec2(vnoise(p * 2.1 + 3.1), vnoise(p * 2.1 - 7.7)) - .5) * .45;
+  float a = ridge(dot(q, vec2(.94, .34)) * 10. + vnoise(q * 3.) * 3. + t * .4) * smoothstep(.25, .75, vnoise(q * 1.6 + 11.));
+  float b = ridge(dot(q, vec2(-.42, .91)) * 14. + vnoise(q * 4. + 5.) * 3. - t * .3) * smoothstep(.3, .8, vnoise(q * 2. + 23.));
+  float c = ridge(dot(q, vec2(.71, -.71)) * 20. + vnoise(q * 5. + 9.) * 2.) * smoothstep(.35, .85, vnoise(q * 2.6 + 37.));
+  float press = exp(-abs(p.x) * 70.) + exp(-abs(p.y) * 70.);
+  return (a * .6 + b * .4 + c * .22) * .06 + press * .012;
+}
+vec2 fold(vec2 q, float c, float R, float th) { // wrap everything past c over a cylinder of radius R, by th
+  float s = q.x - c;
+  if (s <= 0. || th <= 0.) return q;
+  float a = min(s / R, th), rest = max(s - R * th, 0.), rr = R - q.y;
+  foldAmt = max(foldAmt, min(a / 1.6, 1.));
+  return vec2(c + rr * sin(a), R - rr * cos(a)) + rest * vec2(cos(th), sin(th));
+}
+vec3 applyFold(vec3 p, vec4 f) {
+  if (f.w <= 0.) return p;
+  vec2 d = vec2(cos(f.x), sin(f.x));
+  float s = dot(p.xy, d);
+  vec2 q = fold(vec2(s, p.z), f.y, f.z, f.w);
+  return vec3(p.xy - d * s + d * q.x, q.y);
+}
+vec3 deform(vec2 xy) {
+  float z = wrinkles(xy, uTime) * (1. + uCrumple * 1.5)
+          + sin(xy.x * 7. + uTime * 9.) * sin(xy.y * 5. - uTime * 7.) * .045 * uWave;
+  if (uCrumple > 0.) { // balled up: big lumpy relief, the sheet drawn in toward its centre
+    vec2 j = vec2(vnoise(xy * 6. + 3.), vnoise(xy * 6. - 9.)) - .5;
+    z += ((vnoise(xy * 5. + 17.) - .5) * .5 + (abs(vnoise(xy * 11.) - .5) - .25) * .3) * uCrumple;
+    xy = xy * (1. - .62 * uCrumple) + j * .09 * uCrumple;
+  }
+  if (uFan > 0.) { // accordion pleats across x; length along each pleat is preserved
+    float ang = uFan * 1.35, w = .0625;
+    float tri = abs(fract(xy.x / (2. * w) + .25) * 2. - 1.) * 2. - 1.;
+    z += tri * w * .5 * sin(ang);
+    xy.x *= cos(ang);
+  }
+  vec3 p = applyFold(vec3(xy, z), uF0);
+  p = applyFold(p, uF1);
+  p = applyFold(p, uF2);
+  return applyFold(p, uF3);
+}`;
+
+const clothVertex = /* glsl */`
+${DEFORM}
+varying vec2 vUv;
+varying vec3 vViewPos, vN;
+varying float vFold;
+void main() {
+  foldAmt = 0.;
+  vec3 p = deform(position.xy);
+  vFold = foldAmt;
+  vec3 px = deform(position.xy + vec2(.003, 0.)) - p, py = deform(position.xy + vec2(0., .003)) - p;
+  vUv = uv;
+  vec4 mv = modelViewMatrix * vec4(p, 1.);
+  vViewPos = mv.xyz;
+  vN = normalMatrix * cross(px, py);
+  gl_Position = projectionMatrix * mv;
+}`;
+
+const LIGHT = 'vec3(-.55, .7, .45)'; // low key light rakes the folds and the thread
+const clothFragment = /* glsl */`
+uniform sampler2D uHeight, uSewShadow;
+uniform float uTime, uNeedleA, uGrain;
+uniform vec3 uClothCol;
+uniform vec4 uNeedle; // the needle's shadow on the cloth: tip end, eye end (napkin uv)
+varying vec2 vUv;
+varying vec3 vViewPos, vN;
+varying float vFold;
+const float PI = 3.14159265, THREADS = 150.;
+float needleShadow(vec2 p) { // crisp where the tip touches the cloth, softer and fainter toward the raised eye
+  vec2 a = uNeedle.xy, ab = uNeedle.zw - a;
+  float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0., 1.), w = mix(.004, .018, t);
+  return smoothstep(w, 0., length(p - a - ab * t)) * mix(.7, .32, t) * uNeedleA;
+}
+float hash(vec2 p) { vec3 q = fract(vec3(p.xyx) * .1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + 1.), f.x), f.y);
+}
+// plain weave: warp and weft take turns on top; each thread varies in thickness (slubs) and carries a twist
+float weave(vec2 uv) {
+  vec2 q = uv * THREADS, id = floor(q), f = fract(q);
+  float over = mod(id.x + id.y, 2.);
+  float sx = hash(vec2(id.x, 3.)), sy = hash(vec2(7., id.y));
+  float warp = pow(sin(PI * f.x), .5 + sx) * (.55 + .45 * sin(PI * f.y));
+  float weft = pow(sin(PI * f.y), .5 + sy) * (.55 + .45 * sin(PI * f.x));
+  float twist = .07 * mix(sin((f.y * 1.5 + f.x * 5.) * 2. * PI), sin((f.x * 1.5 + f.y * 5.) * 2. * PI), over);
+  float fuzz = (vnoise(uv * 2400.) - .5) * .15;
+  return clamp(mix(weft * .85, warp, over) + twist + fuzz, 0., 1.);
+}
+float microWrinkles(vec2 uv) { return vnoise(uv * vec2(38., 26.) + vnoise(uv * 9.) * 2.) * vnoise(uv * 17. + 4.); }
+void main() {
+  float face = gl_FrontFacing ? 1. : 0.;
+  vec2 uv = vec2(mix(1. - vUv.x, vUv.x, face), vUv.y); // the back shows the same cloth, mirrored
+  vec2 dx = dFdx(uv), dy = dFdy(uv);
+  float aa = clamp(1.6 - length(dx) * THREADS * 1.4, 0., 1.); // fade the weave once a thread shrinks under ~1px
+  float w = weave(uv), m = microWrinkles(uv);
+  const float e = 1. / 1024.;
+  vec2 g = vec2(texture2D(uHeight, uv + vec2(e, 0.)).r - texture2D(uHeight, uv - vec2(e, 0.)).r,
+                texture2D(uHeight, uv + vec2(0., e)).r - texture2D(uHeight, uv - vec2(0., e)).r) / (2. * e);
+  // where thread pulls through, the cloth puckers and darkens (needle holes + contact shadow)
+  float sh = texture2D(uSewShadow, vUv).a * face;
+  vec2 sg = vec2(texture2D(uSewShadow, vUv + vec2(e, 0.)).a - texture2D(uSewShadow, vUv - vec2(e, 0.)).a,
+                 texture2D(uSewShadow, vUv + vec2(0., e)).a - texture2D(uSewShadow, vUv - vec2(0., e)).a) / (2. * e) * face;
+  float dBx = (weave(uv + dx) - w) * aa * .0009 + (microWrinkles(uv + dx) - m) * .006 + dot(g, dx) * .006 - dot(sg, dFdx(vUv)) * .0002;
+  float dBy = (weave(uv + dy) - w) * aa * .0009 + (microWrinkles(uv + dy) - m) * .006 + dot(g, dy) * .006 - dot(sg, dFdy(vUv)) * .0002;
+  vec3 n = normalize(vN) * (face * 2. - 1.);
+  vec3 sx = dFdx(vViewPos), sy = dFdy(vViewPos);
+  vec3 R1 = cross(sy, n), R2 = cross(n, sx);
+  float det = dot(sx, R1);
+  n = normalize(abs(det) * n - sign(det) * (dBx * R1 + dBy * R2));
+
+  vec3 V = normalize(-vViewPos), L = normalize(${LIGHT});
+  float NoL = dot(n, L), NoV = max(dot(n, V), 0.);
+  float wv = mix(.5, w, aa);
+  vec3 alb = uClothCol * (.86 + .14 * wv) * (.96 + .04 * hash(floor(uv * THREADS))) * (1. - sh * .5) * (1. - needleShadow(vUv) * face);
+  float diff = max(NoL, 0.) * .88 + .12;
+  float sheen = pow(1. - NoV, 4.) * .3 * (.35 + .65 * max(NoL, 0.)); // fuzzy fabric rim light
+  vec3 col = alb * diff * (1. - vFold * .18) * (.8 + .2 * wv) + sheen;
+  col = pow(col, vec3(1. / 2.2));
+  col += (hash(gl_FragCoord.xy + fract(uTime * 7.3) * 91.) - .5) * uGrain; // film grain, like the source
+  gl_FragColor = vec4(col, 1.);
+}`;
+
+// ---------- every stitch is a real little tube: it rises out of the cloth, bulges, and dives back in ----------
+const threadVertex = /* glsl */`
+${DEFORM}
+uniform float uSew;          // sewing clock (ms since this napkin arrived)
+attribute vec4 aAB;          // stitch start / end, in napkin uv
+attribute vec4 aInfo;        // birth ms, duration ms, radius, side (+1 front, -1 back)
+attribute vec3 aColor;
+varying vec3 vViewPos, vN, vColor;
+varying vec2 vPly;
+varying float vDepth;
+const float PI = 3.14159265;
+void main() {
+  float grow = clamp((uSew - aInfo.x) / max(aInfo.y, 1.), 0., 1.);
+  if (grow <= 0.) { gl_Position = vec4(2., 2., 2., 1.); return; } // not sewn yet
+  vec2 a = aAB.xy - .5, b = aAB.zw - .5, ab = b - a;
+  float len = max(length(ab), 1e-5);
+  vec2 dir = ab / len, perp = vec2(-dir.y, dir.x);
+  float t = position.x * grow, th = position.y;
+  float prof = pow(sin(PI * clamp(position.x, 0., 1.)), .35) * (grow < 1. ? smoothstep(0., .12, grow) : 1.); // tapers into the holes
+  float r = aInfo.z * prof, side = aInfo.w;
+  vec2 xy = a + ab * t;
+  foldAmt = 0.;
+  vec3 p0 = deform(xy);
+  vec3 pp = deform(xy + perp * .002) - p0, pt = deform(xy + dir * .002) - p0;
+  vec3 N = normalize(cross(pt, pp)) * side;
+  vec3 P = deform(xy + perp * r * cos(th)) + N * (r * (1. + sin(th)) + .0004);
+  vec4 mv = modelViewMatrix * vec4(P, 1.);
+  vViewPos = mv.xyz;
+  vN = normalMatrix * normalize(normalize(pp) * cos(th) + N * sin(th));
+  vColor = aColor;
+  vPly = vec2(t * len / .0042, th / (2. * PI));
+  vDepth = prof;
+  gl_Position = projectionMatrix * mv;
+}`;
+const threadFragment = /* glsl */`
+uniform float uTime, uGrain;
+varying vec3 vViewPos, vN, vColor;
+varying vec2 vPly;
+varying float vDepth;
+float hash(vec2 p) { vec3 q = fract(vec3(p.xyx) * .1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+void main() {
+  vec3 n = normalize(vN) * (gl_FrontFacing ? 1. : -1.);
+  vec3 V = normalize(-vViewPos), L = normalize(${LIGHT});
+  float ply = .5 + .5 * sin((vPly.x + vPly.y * 3.) * 6.2831853);           // three twisted plies
+  float groove = smoothstep(.0, .35, ply);
+  vec3 alb = vColor * (.62 + .48 * ply) * (.55 + .45 * vDepth);           // darker where it dives into the cloth
+  float diff = max(dot(n, L), 0.) * .85 + .15;
+  float silk = pow(max(dot(reflect(-L, n), V), 0.), 22.) * .45 * groove;  // silky floss highlight on each ply
+  vec3 col = alb * diff * (.75 + .25 * groove) + silk;
+  col = pow(col, vec3(1. / 2.2));
+  col += (hash(gl_FragCoord.xy + fract(uTime * 7.3) * 91.) - .5) * uGrain * .83;
+  gl_FragColor = vec4(col, 1.);
+}`;
+
+// ---------- stitch designs: everything is a list of stitches { a, b (napkin uv), r, side, color } ----------
+const FLOSS = () => params.floss; // indigo embroidery floss for lettering (params.floss)
+const mk = (w, h = w) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+const rgb = hex => { const c = new THREE.Color(hex); return [c.r, c.g, c.b]; };
+const tint = ([r, g, b], k) => [r * k, g * k, b * k];
+const dist = (p, q) => Math.hypot(q[0] - p[0], q[1] - p[1]);
+
+function backstitch(pts, len, gap) { // fixed-length stitches laid end to end along a polyline
+  const d = [0];
+  for (let i = 1; i < pts.length; i++) d.push(d[i - 1] + dist(pts[i - 1], pts[i]));
+  const total = d[d.length - 1], at = s => {
+    let i = 1; while (i < d.length - 1 && d[i] < s) i++;
+    const k = (s - d[i - 1]) / ((d[i] - d[i - 1]) || 1);
+    return [lerp(pts[i - 1][0], pts[i][0], k), lerp(pts[i - 1][1], pts[i][1], k)];
+  };
+  const out = [];
+  for (let s = 0; s < total - .5; s += len + gap) out.push([at(s), at(Math.min(s + len, total))]);
+  return out;
+}
+
+// hem: a running stitch right round; the short back stitches sit under the cloth
+function hemStitches(color) {
+  const lo = .046, hi = 1 - lo, per = 36, front = .62, c = rgb(color), out = [];
+  const corners = [[lo, hi], [hi, hi], [hi, lo], [lo, lo]]; // clockwise from the top-left (v points up)
+  corners.forEach((p, k) => {
+    const q = corners[(k + 1) % 4];
+    for (let i = 0; i < per; i++) {
+      const at = f => [lerp(p[0], q[0], (i + f) / per), lerp(p[1], q[1], (i + f) / per)];
+      out.push({ a: at(0), b: at(front), r: .0034, side: 1, color: c });
+      out.push({ a: at(front), b: at(1), r: .0028, side: -1, color: tint(c, .9) });
+    }
+  });
+  return out;
+}
+
+// ---- lettering: set the text, thin it to one-pixel strokes, trace those, and backstitch along them ----
+const HAND = '"Caveat", "Segoe Print", "Bradley Hand", cursive';
+const SIGN = '"Mrs Saint Delafield", "Segoe Script", cursive';
+const WRITE_BOX = { u0: .12, u1: .88, v0: .13, v1: .58 }, SIGN_BOX = { u0: .1, u1: .56, v0: .64, v1: .86 }; // v from the top
+const PX = 1024;
+function layoutText(msg) {
+  const c = mk(8).getContext('2d');
+  const maxW = (WRITE_BOX.u1 - WRITE_BOX.u0) * PX, maxH = (WRITE_BOX.v1 - WRITE_BOX.v0) * PX;
+  const wrap = size => {
+    c.font = `600 ${size}px ${HAND}`;
+    const out = [];
+    for (const para of msg.text.split('\n')) {
+      let cur = '';
+      for (const word of para.split(/\s+/).filter(Boolean)) {
+        const next = cur ? `${cur} ${word}` : word;
+        if (c.measureText(next).width <= maxW) { cur = next; continue; }
+        if (cur) out.push(cur);
+        cur = word;
+        while (c.measureText(cur).width > maxW) { // a single long word: break it by characters
+          let i = cur.length; while (i > 1 && c.measureText(cur.slice(0, i)).width > maxW) i--;
+          out.push(cur.slice(0, i)); cur = cur.slice(i);
+        }
+      }
+      out.push(cur);
+    }
+    return out;
+  };
+  let size = 124, lines;
+  for (; size > 40; size -= 4) { lines = wrap(size); if (lines.length * size * 1.08 <= maxH) break; }
+  let s = msg.text.length * 7 + 3;
+  const r = () => (s = s * 16807 % 2147483647) / 2147483647;
+  const rows = lines.map((text, i) => ({ text, x: WRITE_BOX.u0 * PX + (r() - .5) * 10, base: WRITE_BOX.v0 * PX + size * .92 + i * size * 1.08, rot: (r() - .5) * .02 }));
+  let sig = null;
+  if (msg.sign) {
+    let ss = 130;
+    for (; ss > 40; ss -= 4) { c.font = `${ss}px ${SIGN}`; if (c.measureText(msg.sign).width <= (SIGN_BOX.u1 - SIGN_BOX.u0) * PX) break; }
+    const w = c.measureText(msg.sign).width, x = SIGN_BOX.u0 * PX, base = SIGN_BOX.v0 * PX + ss * .95, y0 = base + ss * .16;
+    const fl = new Path2D(); // flourish: a swoosh under the name that kicks up past the last letter
+    fl.moveTo(x - 6, y0); fl.bezierCurveTo(x + w * .35, y0 + ss * .22, x + w * .8, y0 + ss * .06, x + w + 34, y0 - ss * .3);
+    sig = { text: msg.sign, size: ss, x, base, rot: -.06, fl };
+  }
+  return { size, rows, sig };
+}
+function thin(img, W, H) { // Zhang-Suen thinning, in place
+  const del = [];
+  for (let changed = true; changed;) {
+    changed = false;
+    for (let pass = 0; pass < 2; pass++) {
+      del.length = 0;
+      for (let y = 1; y < H - 1; y++) for (let x = 1, i = y * W + 1; x < W - 1; x++, i++) {
+        if (!img[i]) continue;
+        const p2 = img[i - W], p3 = img[i - W + 1], p4 = img[i + 1], p5 = img[i + W + 1], p6 = img[i + W], p7 = img[i + W - 1], p8 = img[i - 1], p9 = img[i - W - 1];
+        const B = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
+        if (B < 2 || B > 6) continue;
+        const A = (!p2 & p3) + (!p3 & p4) + (!p4 & p5) + (!p5 & p6) + (!p6 & p7) + (!p7 & p8) + (!p8 & p9) + (!p9 & p2);
+        if (A !== 1) continue;
+        if (pass ? (p2 & p4 & p8) | (p2 & p6 & p8) : (p2 & p4 & p6) | (p4 & p6 & p8)) continue;
+        del.push(i);
+      }
+      for (const i of del) img[i] = 0;
+      if (del.length) changed = true;
+    }
+  }
+}
+function trace(img, W, H) { // skeleton pixels -> polylines (endpoints first, then closed loops)
+  const nb = [1, W, -1, -W, W + 1, W - 1, -W - 1, -W + 1];
+  const seen = new Uint8Array(W * H), out = [], pix = [];
+  for (let i = 0; i < W * H; i++) if (img[i]) pix.push(i);
+  const degree = i => nb.reduce((n, o) => n + img[i + o], 0);
+  const walk = i => {
+    const pts = [];
+    while (i >= 0) {
+      seen[i] = 1; pts.push([i % W, i / W | 0]);
+      const j = nb.map(o => i + o).find(j => img[j] && !seen[j]);
+      i = j ?? -1;
+    }
+    return pts;
+  };
+  for (const i of pix) if (!seen[i] && degree(i) === 1) out.push(walk(i));
+  for (const i of pix) if (!seen[i]) out.push(walk(i));
+  return out.filter(p => p.length > 3);
+}
+function simplify(pts, eps) { // Ramer-Douglas-Peucker
+  if (pts.length < 3) return pts;
+  const [a, b] = [pts[0], pts[pts.length - 1]], L = dist(a, b) || 1;
+  let far = 0, idx = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = Math.abs((b[0] - a[0]) * (a[1] - pts[i][1]) - (a[0] - pts[i][0]) * (b[1] - a[1])) / L;
+    if (d > far) { far = d; idx = i; }
+  }
+  return far > eps ? [...simplify(pts.slice(0, idx + 1), eps).slice(0, -1), ...simplify(pts.slice(idx), eps)] : [a, b];
+}
+function sewText(draw, color, r, centres) { // draw(ctx) paints white glyphs; returns stitches in reading order
+  const cv = mk(PX), x = cv.getContext('2d');
+  x.fillStyle = '#000'; x.fillRect(0, 0, PX, PX);
+  x.fillStyle = x.strokeStyle = '#fff';
+  draw(x);
+  const data = x.getImageData(0, 0, PX, PX).data;
+  let y0 = PX, y1 = 0; // thin only the rows that hold ink
+  const img = new Uint8Array(PX * PX);
+  for (let i = 0; i < PX * PX; i++) if (data[i * 4] > 110) { img[i] = 1; const y = i / PX | 0; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  if (y1 <= y0) return [];
+  const top = Math.max(0, y0 - 2), H = Math.min(PX, y1 + 3) - top, crop = img.subarray(top * PX, (top + H) * PX);
+  thin(crop, PX, H);
+  const lines = trace(crop, PX, H).map(p => simplify(p, .9).map(([px, py]) => [px, py + top]));
+  // reading order: nearest text line, then left to right
+  const key = p => {
+    const my = p.reduce((s, v) => s + v[1], 0) / p.length;
+    return [centres.reduce((best, c, i) => Math.abs(c - my) < Math.abs(centres[best] - my) ? i : best, 0), Math.min(...p.map(v => v[0]))];
+  };
+  const keyed = lines.map(p => [key(p), p]).sort(([a], [b]) => a[0] - b[0] || a[1] - b[1]);
+  lines.length = 0; keyed.forEach(([, p]) => lines.push(p));
+  const c = rgb(color), out = [];
+  for (const line of lines) {
+    backstitch(line, 9, 1.1).forEach(([a, b], i) => out.push({ a: [a[0] / PX, 1 - a[1] / PX], b: [b[0] / PX, 1 - b[1] / PX], r, side: 1, color: tint(c, .94 + (i % 3) * .04), jump: i === 0 }));
+  }
+  return out;
+}
+function letterStitches(msg) {
+  const L = layoutText(msg);
+  const words = sewText(x => {
+    x.font = `600 ${L.size}px ${HAND}`;
+    for (const row of L.rows) { x.save(); x.translate(row.x, row.base); x.rotate(row.rot); x.fillText(row.text, 0, 0); x.restore(); }
+  }, FLOSS(), .003, L.rows.map(row => row.base - L.size * .3));
+  const sig = L.sig ? sewText(x => {
+    x.font = `${L.sig.size}px ${SIGN}`;
+    x.save(); x.translate(L.sig.x, L.sig.base); x.rotate(L.sig.rot); x.fillText(L.sig.text, 0, 0); x.restore();
+    x.lineWidth = 5; x.lineCap = 'round'; x.stroke(L.sig.fl);
+  }, FLOSS(), .0026, [L.sig.base - L.sig.size * .2]) : [];
+  return { words, sig };
+}
+
+// ---- feeling tokens: polygons (256px box, y down) filled with satin floss, edged with split stitch ----
+const shape = (n, f) => Array.from({ length: n }, (_, i) => f(i / n * TAU));
+const circleP = (x, y, r) => shape(64, a => [x + Math.cos(a) * r, y + Math.sin(a) * r]);
+const ellipseP = (x, y, rx, ry, rot) => shape(48, a => { const px = Math.cos(a) * rx, py = Math.sin(a) * ry; return [x + px * Math.cos(rot) - py * Math.sin(rot), y + px * Math.sin(rot) + py * Math.cos(rot)]; });
+const starP = (x, y, R, k = .45) => Array.from({ length: 10 }, (_, i) => { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? R * k : R; return [x + Math.cos(a) * r, y + Math.sin(a) * r]; });
+const heartP = () => shape(90, t => [128 + 86 * Math.sin(t) ** 3, 116 - 5.4 * (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t))]);
+const cubic = (p0, p1, p2, p3, n = 24) => Array.from({ length: n + 1 }, (_, i) => { const t = i / n, u = 1 - t; return [0, 1].map(k => u * u * u * p0[k] + 3 * u * u * t * p1[k] + 3 * u * t * t * p2[k] + t * t * t * p3[k]); });
+const crescentP = () => [
+  ...Array.from({ length: 40 }, (_, i) => { const a = -1.1 - i / 39 * (TAU - 2.2); return [128 + Math.cos(a) * 86, 128 + Math.sin(a) * 86]; }),
+  ...Array.from({ length: 30 }, (_, i) => { const a = 1.612 + i / 29 * (4.671 - 1.612); return [170 + Math.cos(a) * 76.8, 128 + Math.sin(a) * 76.8]; }),
+];
+const TOKENS = {
+  love: { label: 'Love', parts: [{ poly: heartP(), color: '#d52a43', angle: .6 }] },
+  happy: { label: 'Happy', parts: [
+    { poly: circleP(128, 128, 88), color: '#f3b41b', angle: -.5 },
+    { poly: ellipseP(98, 108, 9, 14, 0), color: '#4a2c0a', angle: 0 },
+    { poly: ellipseP(158, 108, 9, 14, 0), color: '#4a2c0a', angle: 0 },
+  ], runs: [{ pts: Array.from({ length: 21 }, (_, i) => { const t = i / 20; return [lerp(84, 172, t), 146 + 4 * 25 * t * (1 - t) * 2]; }), color: '#4a2c0a' }] },
+  grateful: { label: 'Grateful', parts: [
+    ...[0, 1, 2, 3, 4].map(i => { const a = -Math.PI / 2 + i * TAU / 5; return { poly: ellipseP(128 + Math.cos(a) * 52, 128 + Math.sin(a) * 52, 44, 28, a), color: '#e3609f', angle: a + Math.PI / 2 }; }),
+    { poly: circleP(128, 128, 26), color: '#f2c318', angle: .8 },
+  ] },
+  missyou: { label: 'Miss you', parts: [{ poly: crescentP(), color: '#3a68d6', angle: -.9 }, { poly: starP(196, 70, 26), color: '#f0bd3c', angle: .4 }] },
+  proud: { label: 'Proud', parts: [{ poly: starP(128, 134, 96), color: '#dea01a', angle: 1.2 }] },
+  calm: { label: 'Calm', parts: [{ poly: [...cubic([50, 206], [44, 120], [110, 52], [212, 44]), ...cubic([212, 44], [214, 140], [150, 206], [50, 206]).slice(1)], color: '#3c9a5f', angle: -.8 }],
+    runs: [{ pts: cubic([58, 198], [100, 150], [140, 110], [200, 56]), color: '#1f5e37' }] },
+};
+const TOK_RECT = { u0: .63, u1: .85, v0: .6, v1: .82 }; // v from the top
+const tokUv = ([x, y]) => [lerp(TOK_RECT.u0, TOK_RECT.u1, x / 256), 1 - lerp(TOK_RECT.v0, TOK_RECT.v1, y / 256)];
+function inside(x, y, poly) {
+  let hit = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) hit = !hit;
+  }
+  return hit;
+}
+function tokenStitches(name) {
+  const out = [], T = TOKENS[name];
+  for (const part of T.parts) {
+    const c = rgb(part.color), d = [Math.cos(part.angle), Math.sin(part.angle)], n = [-d[1], d[0]], step = 3.4;
+    let k = 0;
+    for (let s = -130; s <= 130; s += step) { // satin: parallel floats across the shape, needle going back and forth
+      let start = null;
+      for (let t = -190; t <= 191; t++) {
+        const x = 128 + n[0] * s + d[0] * t, y = 128 + n[1] * s + d[1] * t, on = t < 191 && inside(x, y, part.poly);
+        if (on && start === null) start = t;
+        if (!on && start !== null) {
+          if (t - start > 2) {
+            let A = [128 + n[0] * s + d[0] * start, 128 + n[1] * s + d[1] * start], B = [128 + n[0] * s + d[0] * (t - 1), 128 + n[1] * s + d[1] * (t - 1)];
+            if (k++ % 2) [A, B] = [B, A];
+            out.push({ a: tokUv(A), b: tokUv(B), r: .00175, side: 1, color: tint(c, .9 + (k * 7 % 5) * .04) });
+          }
+          start = null;
+        }
+      }
+    }
+    backstitch([...part.poly, part.poly[0]], 5, .6).forEach(([a, b], i) => out.push({ a: tokUv(a), b: tokUv(b), r: .0012, side: 1, color: tint(c, .68), jump: i === 0 }));
+  }
+  for (const run of T.runs || []) backstitch(run.pts, 6, .8).forEach(([a, b], i) => out.push({ a: tokUv(a), b: tokUv(b), r: .0015, side: 1, color: rgb(run.color), jump: i === 0 }));
+  return out;
+}
+function tokenThumb(name) { // flat satin preview for the picker chip
+  const c = mk(64), x = c.getContext('2d');
+  x.scale(52 / 256, 52 / 256); x.translate(31, 31);
+  const T = TOKENS[name];
+  for (const part of T.parts) {
+    x.save(); x.beginPath(); part.poly.forEach(([px, py], i) => x[i ? 'lineTo' : 'moveTo'](px, py)); x.closePath();
+    x.fillStyle = part.color; x.fill(); x.clip();
+    x.strokeStyle = 'rgba(255,255,255,.25)'; x.lineWidth = 3; x.beginPath();
+    const d = [Math.cos(part.angle), Math.sin(part.angle)];
+    for (let s = -140; s < 140; s += 9) { x.moveTo(128 - d[1] * s - d[0] * 190, 128 + d[0] * s - d[1] * 190); x.lineTo(128 - d[1] * s + d[0] * 190, 128 + d[0] * s + d[1] * 190); }
+    x.stroke(); x.restore();
+  }
+  for (const run of T.runs || []) { x.strokeStyle = run.color; x.lineWidth = 8; x.lineCap = 'round'; x.beginPath(); run.pts.forEach(([px, py], i) => x[i ? 'lineTo' : 'moveTo'](px, py)); x.stroke(); }
+  return c.toDataURL();
+}
+
+// give a group of stitches birth times: needle speed set so the group takes `ms`, with a short hop between lines
+function schedule(list, t0, ms) {
+  const total = list.reduce((s, st) => s + dist(st.a, st.b), 0) || 1;
+  let t = t0;
+  for (const st of list) {
+    if (st.jump) t += 45;
+    st.birth = t; st.dur = Math.max(10, dist(st.a, st.b) / total * ms);
+    t += st.dur;
+  }
+  return t;
+}
+const sewLength = list => list.reduce((s, st) => s + dist(st.a, st.b), 0);
+
+// ---- needle holes + contact shadow the thread leaves in the cloth (front face) ----
+const shadowCanvas = mk(PX), shc = shadowCanvas.getContext('2d'), shadowTex = new THREE.CanvasTexture(shadowCanvas);
+function shadowStitch(st) {
+  if (st.side < 0) return;
+  const ax = st.a[0] * PX, ay = (1 - st.a[1]) * PX, bx = st.b[0] * PX, by = (1 - st.b[1]) * PX, w = st.r * PX;
+  shc.save();
+  shc.filter = 'blur(2px)'; shc.strokeStyle = 'rgba(0,0,0,.5)'; shc.lineWidth = w * 2.6; shc.lineCap = 'round';
+  shc.beginPath(); shc.moveTo(ax, ay); shc.lineTo(bx, by); shc.stroke();
+  shc.filter = 'none'; shc.fillStyle = 'rgba(0,0,0,.85)';
+  shc.beginPath(); shc.arc(ax, ay, w * .75, 0, TAU); shc.arc(bx, by, w * .75, 0, TAU); shc.fill();
+  shc.restore();
+}
+
+// ---- the same wrinkle field as the shader, so the needle rides the cloth ----
+const fract = v => v - Math.floor(v);
+function hash(x, y) {
+  let a = fract(x * .1031), b = fract(y * .1031), c = a;
+  const d = a * (b + 33.33) + b * (c + 33.33) + c * (a + 33.33);
+  a += d; b += d; c += d;
+  return fract((a + b) * c);
+}
+function vnoise(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  let fx = x - ix, fy = y - iy;
+  fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+  return lerp(lerp(hash(ix, iy), hash(ix + 1, iy), fx), lerp(hash(ix, iy + 1), hash(ix + 1, iy + 1), fx), fy);
+}
+const ridge = v => { const s = .5 + .5 * Math.cos(v); return s * s; };
+const smooth = (e0, e1, v) => { const k = clamp01((v - e0) / (e1 - e0)); return k * k * (3 - 2 * k); };
+function wrinkles(x, y, t) {
+  const qx = x + (vnoise(x * 2.1 + 3.1, y * 2.1 + 3.1) - .5) * .45, qy = y + (vnoise(x * 2.1 - 7.7, y * 2.1 - 7.7) - .5) * .45;
+  const a = ridge((qx * .94 + qy * .34) * 10 + vnoise(qx * 3, qy * 3) * 3 + t * .4) * smooth(.25, .75, vnoise(qx * 1.6 + 11, qy * 1.6 + 11));
+  const b = ridge((qx * -.42 + qy * .91) * 14 + vnoise(qx * 4 + 5, qy * 4 + 5) * 3 - t * .3) * smooth(.3, .8, vnoise(qx * 2 + 23, qy * 2 + 23));
+  const c = ridge((qx * .71 - qy * .71) * 20 + vnoise(qx * 5 + 9, qy * 5 + 9) * 2) * smooth(.35, .85, vnoise(qx * 2.6 + 37, qy * 2.6 + 37));
+  return (a * .6 + b * .4 + c * .22) * .06 + (Math.exp(-Math.abs(x) * 70) + Math.exp(-Math.abs(y) * 70)) * .012;
+}
+
+// ---------- scene ----------
+const canvas = document.querySelector('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, params.dprCap));
+const clearFor = s => s === 'light' ? 0xe8e6e1 : 0x000000; // follows the page theme
+renderer.setClearColor(clearFor(document.documentElement.dataset.theme), 1);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, 1, .1, 50);
+const noFold = () => new THREE.Vector4();
+const shared = {
+  uTime: { value: 0 }, uWave: { value: 0 }, uCrumple: { value: 0 }, uFan: { value: 0 },
+  uF0: { value: noFold() }, uF1: { value: noFold() }, uF2: { value: noFold() }, uF3: { value: noFold() },
+  uNeedle: { value: new THREE.Vector4() }, uNeedleA: { value: 0 },
+  uGrain: { value: params.grain }, uClothCol: { value: new THREE.Vector3(...hex3(params.cloth)) },
+};
+const uSew = { value: 0 };
+const napkin = new THREE.Group();
+scene.add(napkin);
+const cloth = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 200, 200), new THREE.ShaderMaterial({
+  vertexShader: clothVertex, fragmentShader: clothFragment, side: THREE.DoubleSide,
+  uniforms: { ...shared, uHeight: { value: clothHeight() }, uSewShadow: { value: shadowTex } },
+}));
+cloth.frustumCulled = false;
+
+// all stitches of the current napkin live in one instanced mesh
+const MAX = 8000;
+const tube = new THREE.PlaneGeometry(1, TAU, 7, 8).translate(.5, 0, 0); // x: along the stitch, y: around the thread
+const threadGeo = new THREE.InstancedBufferGeometry();
+threadGeo.index = tube.index;
+threadGeo.setAttribute('position', tube.getAttribute('position'));
+const aAB = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 4), 4);
+const aInfo = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 4), 4);
+const aColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
+threadGeo.setAttribute('aAB', aAB); threadGeo.setAttribute('aInfo', aInfo); threadGeo.setAttribute('aColor', aColor);
+threadGeo.instanceCount = 0;
+const threads = new THREE.Mesh(threadGeo, new THREE.ShaderMaterial({
+  vertexShader: threadVertex, fragmentShader: threadFragment, side: THREE.DoubleSide, uniforms: { ...shared, uSew },
+}));
+threads.frustumCulled = false;
+
+// needle: polished steel via a painted matcap; a strand of floss trails from its eye
+function matcap(stops, hx = 46, hy = 40) {
+  const c = mk(128), x = c.getContext('2d'), g = x.createRadialGradient(hx, hy, 4, 64, 64, 64);
+  stops.forEach(([o, col]) => g.addColorStop(o, col));
+  x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+  return Object.assign(new THREE.CanvasTexture(c), { colorSpace: THREE.SRGBColorSpace });
+}
+const steel = new THREE.MeshMatcapMaterial({ matcap: matcap([[0, '#ffffff'], [.12, '#dfe3e8'], [.36, '#737a84'], [.7, '#262930'], [1, '#7c828b']], 36, 30) }); // off-centre glint: a flat-lying needle reads as dark steel with one bright edge
+const needle = new THREE.Group();
+const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.0055, .0004, .2, 16, 1).translate(0, .1, 0), steel); // tip at the origin, eye up +y
+const eye = new THREE.Mesh(new THREE.TorusGeometry(.0046, .0016, 8, 20).scale(.8, 1.6, 1).translate(0, .185, 0), steel);
+needle.add(shaft, eye);
+const flossMat = new THREE.MeshMatcapMaterial({ matcap: matcap([[0, '#ffffff'], [.4, '#bdbdbd'], [1, '#3a3a3a']]) });
+const tail = new THREE.Mesh(new THREE.BufferGeometry(), flossMat);
+napkin.add(cloth, threads, needle, tail);
+
+const composerEl = document.querySelector('.composer');
+function resize() { // fit the napkin into the space above the composer, whatever the screen shape
+  const W = innerWidth, H = innerHeight;
+  renderer.setSize(W, H, false);
+  const top = Math.max(H * .45, composerEl.getBoundingClientRect().top - 12);
+  const s = (H - top) / 2, fullH = H + 2 * s; // a taller virtual frame, cropped, re-centres the napkin at top / 2
+  camera.aspect = W / fullH;
+  const d = 1.25 * fullH / (Math.min(W, top) * .74 * 2 * Math.tan(THREE.MathUtils.degToRad(15)));
+  camera.position.set(0, -.18 * d, d);
+  camera.lookAt(0, 0, 0);
+  camera.setViewOffset(W, fullH, 0, 2 * s, W, H);
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+new ResizeObserver(resize).observe(composerEl);
+resize();
+
+// ---------- how a napkin arrives: swoop in folded, then open out -- a different way each time ----------
+const REST = { x: .02, y: .02, rz: .19 }; // turned ~11deg, as in the clip
+const PI = Math.PI, F0 = [0, 0, 0, 0];
+const UNFOLDS = {
+  quarters: u => { const s1 = clamp01(u * 2), s0 = clamp01(u * 2 - 1); return { folds: [[0, 0, .02, PI * (1 - s0)], [PI / 2, 0, .045, PI * (1 - s1)], F0, F0], offset: [.25 * (1 - s0), .25 * (1 - s1)] }; },
+  letter: u => { const s1 = clamp01(u * 2), s0 = clamp01(u * 2 - 1); return { folds: [[0, 1 / 6, .02, PI * (1 - s0)], [PI, 1 / 6, .036, PI * (1 - s1)], F0, F0] }; },
+  triangle: u => {
+    const s1 = clamp01(u * 2), s0 = clamp01(u * 2 - 1);
+    return { folds: [[.75 * PI, 0, .02, PI * (1 - s0)], [.25 * PI, 0, .04, PI * (1 - s1)], F0, F0], offset: [lerp(lerp(0, -.17, s1), 0, s0), lerp(lerp(.33, .17, s1), 0, s0)] };
+  },
+  envelope: u => ({ folds: [.25, .75, 1.25, 1.75].map((q, i) => [q * PI, .3536, .015 + i * .012, PI * (1 - clamp01(u * 1.7 - i * .23))]) }),
+  crumple: u => ({ crumple: 1 - u, spin: (1 - u) * 2.2 }),
+  fan: u => ({ fan: 1 - u }),
+};
+const LABELS = { quarters: 'folded in quarters', letter: 'letter-folded', triangle: 'folded into a triangle', envelope: 'folded like an envelope', crumple: 'crumpled into a ball', fan: 'pleated like a fan' };
+const pose0 = () => ({ x: REST.x, y: REST.y, z: 0, rx: 0, ry: 0, rz: REST.rz, wave: 0, crumple: 0, fan: 0, folds: [F0, F0, F0, F0], offset: [0, 0], spin: 0 });
+function introPose(unfold, el) {
+  const sw = easeOut(span(el, SWOOP)), drop = 1 - sw, u = easeInOut(span(el, UNFOLD));
+  const p = Object.assign(pose0(), UNFOLDS[unfold](u));
+  Object.assign(p, { x: lerp(REST.x, 1.45, drop), y: lerp(REST.y, -1.3, drop), z: lerp(.08, 1.2, drop) * (1 - u), rx: .6 * drop, ry: -.4 * drop, rz: REST.rz - .8 * drop + p.spin });
+  p.wave = .35 * params.wave * (1 - u) * (1 - sw * .5);
+  return p;
+}
+function exitPose(a) { // measured send-off: corner peels back, the sheet accelerates away to the top-left
+  const peel = easeIn(span(a, PEEL)), ex = easeIn(span(a, EXIT)), p = pose0();
+  p.folds = [[-PI / 4, .707 - .5 * peel - .25 * ex, .12 + .05 * peel + .1 * ex, 2.9 * Math.sqrt(peel)], F0, F0, F0];
+  return Object.assign(p, { x: lerp(REST.x, -.9, ex), y: lerp(REST.y, .35, ex), z: 2 * ex, rx: -.7 * ex, ry: .5 * ex, rz: REST.rz + .9 * ex, wave: ex });
+}
+function applyPose(p) {
+  const c = Math.cos(p.rz), s = Math.sin(p.rz), [ox, oy] = p.offset; // re-centre a folded packet
+  napkin.position.set(p.x + ox * c - oy * s, p.y + ox * s + oy * c, p.z);
+  napkin.rotation.set(p.rx, p.ry, p.rz);
+  shared.uWave.value = p.wave; shared.uCrumple.value = p.crumple; shared.uFan.value = p.fan;
+  p.folds.forEach((f, i) => shared[`uF${i}`].value.set(...f));
+}
+
+// ---------- napkin lifecycle ----------
+let nap, lastUnfold = null, count = 0, feeling = 'love';
+function resetThreads() {
+  count = 0; threadGeo.instanceCount = 0;
+  shc.clearRect(0, 0, PX, PX); shadowTex.needsUpdate = true;
+}
+function addStitches(list) {
+  for (const st of list) {
+    if (count >= MAX) break;
+    aAB.array.set([...st.a, ...st.b], count * 4);
+    aInfo.array.set([st.birth, st.dur, st.r, st.side], count * 4);
+    aColor.array.set(st.color, count * 3);
+    nap.stitches.push(st);
+    count++;
+  }
+  threadGeo.instanceCount = count;
+  aAB.needsUpdate = aInfo.needsUpdate = aColor.needsUpdate = true;
+}
+function newNapkin(at, hemFeeling = feeling) {
+  const options = Object.keys(UNFOLDS).filter(k => k !== lastUnfold);
+  const unfold = UNFOLDS[params.unfold] ? params.unfold : options[Math.random() * options.length | 0];
+  lastUnfold = unfold;
+  nap = { born: reduce ? at - 1e6 : at, unfold, stitches: [], cursor: 0, shadowDone: 0, sewEnd: 0, hemEnd: 0, exitAt: null, msg: null };
+  resetThreads();
+  const hem = hemStitches(TOKENS[hemFeeling].parts[0].color);
+  nap.hemEnd = nap.sewEnd = schedule(hem, HEM_AT, HEM_MS);
+  addStitches(hem);
+  canvas.setAttribute('aria-label', `A cloth napkin ${LABELS[unfold]} opens out, and a needle sews its hem`);
+}
+function sewMessage(msg, from) { // schedule lettering, signature and token after whatever is already being sewn
+  const { words, sig } = letterStitches(msg), tok = tokenStitches(msg.feeling);
+  let t = Math.max(from, nap.sewEnd) + 300;
+  t = schedule(words, t, Math.min(6500, Math.max(2200, sewLength(words) * 700)));
+  if (sig.length) t = schedule(sig, t + 250, Math.min(2200, Math.max(900, sewLength(sig) * 700)));
+  t = schedule(tok, t + 300, 2600);
+  addStitches([...words, ...sig, ...tok]);
+  nap.sewEnd = t; nap.msg = msg;
+  canvas.setAttribute('aria-label', `Cloth napkin with the stitched message “${msg.text}”${msg.sign ? `, signed ${msg.sign},` : ''} and an embroidered ${TOKENS[msg.feeling].label.toLowerCase()} token`);
+}
+
+// needle: follows the stitch being sewn -- up and over, then down through the cloth
+const Y = new THREE.Vector3(0, 1, 0), heading = new THREE.Vector2(1, 0), tip = new THREE.Vector3(), axis = new THREE.Vector3(), eyePos = new THREE.Vector3(), hole = new THREE.Vector3(), mid = new THREE.Vector3();
+function updateNeedle(sewT, time) {
+  const S = nap.stitches;
+  while (nap.cursor < S.length - 1 && S[nap.cursor + 1].birth <= sewT) nap.cursor++;
+  const st = S[nap.cursor], next = S[nap.cursor + 1];
+  const done = st.birth + st.dur, gapToNext = next ? next.birth - sewT : Infinity;
+  const vis = reduce ? 0 : Math.min(clamp01((sewT - (st.birth - 300)) / 300), done > sewT ? 1 : clamp01(1 - (sewT - done) / 350) + (gapToNext < 300 ? 1 : 0));
+  needle.visible = tail.visible = vis > .01 && sewT >= S[0].birth - 300;
+  shared.uNeedleA.value = needle.visible ? vis : 0;
+  if (!needle.visible) return;
+  const g = clamp01((sewT - st.birth) / st.dur);
+  const x = lerp(st.a[0], st.b[0], g) - .5, y = lerp(st.a[1], st.b[1], g) - .5;
+  const bob = Math.sin(time * 18); // the hand rocks the needle in and out of the cloth, ~3 times a second
+  tip.set(x, y, wrinkles(x, y, time) + .012 * bob - .004 + (1 - vis) * .12);
+  const L = Math.hypot(st.b[0] - st.a[0], st.b[1] - st.a[1]) || 1;
+  heading.lerp({ x: (st.b[0] - st.a[0]) / L, y: (st.b[1] - st.a[1]) / L }, .12).normalize(); // no snapping at every stitch
+  const hx = heading.x, hy = heading.y;
+  axis.set(-hx * .62 + hy * .38, -hy * .62 - hx * .38, .36 + .1 * bob).normalize(); // eye trails behind, leaning in over the cloth (the hem runs clockwise)
+  needle.position.copy(tip);
+  needle.quaternion.setFromUnitVectors(Y, axis);
+  eyePos.copy(axis).multiplyScalar(.185).add(tip);
+  const k = .9, z0 = wrinkles(x, y, time); // light rakes in from the upper left: shadows fall down and right
+  const sx0 = tip.x + Math.max(0, tip.z - z0) * k, sy0 = tip.y - Math.max(0, tip.z - z0) * k;
+  const sx1 = eyePos.x + (eyePos.z - z0) * k, sy1 = eyePos.y - (eyePos.z - z0) * k;
+  shared.uNeedle.value.set(sx0 + .5, sy0 + .5, sx1 + .5, sy1 + .5);
+  hole.set(st.a[0] - .5, st.a[1] - .5, wrinkles(st.a[0] - .5, st.a[1] - .5, time) + .002);
+  mid.lerpVectors(hole, eyePos, .5); mid.x -= hy * .07; mid.y += hx * .07; mid.z = z0 + .012; // the floss sags away from the needle's lean
+  tail.geometry.dispose();
+  tail.geometry = new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(hole, mid, eyePos), 16, .0024, 6);
+  flossMat.color.setRGB(...st.color);
+}
+
+// ---------- compose, sew, send ----------
+const form = document.querySelector('.composer'), msgEl = document.getElementById('msg'), countEl = document.getElementById('count');
+const signEl = document.getElementById('sign'), sendBtn = document.getElementById('sendBtn'), hint = document.getElementById('hint'), feelingsEl = document.getElementById('feelings');
+const toast = document.getElementById('toast'), toastText = document.getElementById('toastText'), toastLink = document.getElementById('toastLink');
+const fontsReady = Promise.all([document.fonts.load('600 64px "Caveat"'), document.fonts.load('64px "Mrs Saint Delafield"')]).catch(() => {});
+const within = (p, ms, fallback) => Promise.race([p, new Promise(r => setTimeout(() => r(fallback), ms))]);
+let msgId = 0, toastTimer, received = false;
+
+for (const [name, t] of Object.entries(TOKENS)) {
+  const b = document.createElement('button');
+  Object.assign(b, { type: 'button', className: 'feel', innerHTML: `<img alt="" src="${tokenThumb(name)}">${t.label}` });
+  b.setAttribute('aria-pressed', name === feeling);
+  b.onclick = () => { feeling = name; feelingsEl.querySelectorAll('.feel').forEach(x => x.setAttribute('aria-pressed', x === b)); };
+  feelingsEl.append(b);
+}
+const updateCount = () => { countEl.textContent = `${msgEl.value.length}/90`; };
+msgEl.addEventListener('input', updateCount);
+msgEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
+
+const linkFor = msg => `${location.href.split('#')[0]}#${new URLSearchParams({ m: msg.text, f: msg.feeling, ...(msg.sign && { s: msg.sign }) })}`;
+function showToast(text, link) {
+  toastText.textContent = text; toastLink.value = link;
+  toast.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('show'), 9000);
+}
+document.getElementById('copyBtn').onclick = () => { toastLink.select(); navigator.clipboard?.writeText(toastLink.value).catch(() => document.execCommand('copy')); toastText.textContent = 'Link copied'; };
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  const text = msgEl.value.trim();
+  if (!text || nap.exitAt !== null) { msgEl.focus(); return; }
+  const msg = { id: ++msgId, text, feeling, sign: signEl.value.trim() }, link = linkFor(msg);
+  // never block on the clipboard: a pending permission prompt could stall the whole send
+  const copied = within((navigator.clipboard?.writeText(link) ?? Promise.reject()).then(() => true, () => false), 1500, false);
+  nap.exitAt = Infinity; // busy from now on
+  await within(fontsReady, 800);
+  sewMessage(msg, performance.now() - nap.born);
+  nap.exitAt = nap.born + nap.sewEnd + 1000;
+  nap.link = link; nap.copied = copied;
+  msgEl.value = ''; updateCount();
+});
+
+addEventListener('hashchange', () => location.reload()); // a pasted link in an open tab still plays
+const shared_ = new URLSearchParams(location.hash.slice(1));
+const sharedFeeling = TOKENS[shared_.get('f')] ? shared_.get('f') : 'love';
+newNapkin(performance.now(), shared_.get('m') ? sharedFeeling : feeling); // a received napkin is hemmed in the sender's colour
+if (shared_.get('m')) { // someone opened a shared link: the napkin arrives and sews their message
+  received = true;
+  msgEl.placeholder = 'Sew a reply…';
+  const msg = { id: ++msgId, text: shared_.get('m').slice(0, 90), feeling: sharedFeeling, sign: (shared_.get('s') || '').slice(0, 24) };
+  within(fontsReady, 1500).then(() => sewMessage(msg, 0));
+} else if (params.demo) within(fontsReady, 1500).then(() => sewMessage({ id: ++msgId, text: params.demo.slice(0, 90), feeling, sign: '' }, 0));
+
+function status(sewT, el) {
+  if (nap.exitAt !== null && sewT >= nap.sewEnd) return 'Sending…';
+  if (el < UNFOLD[1]) return `Unfolding a fresh napkin, ${LABELS[nap.unfold]}…`;
+  if (sewT < nap.hemEnd) return 'Sewing the hem…';
+  if (sewT < nap.sewEnd) return nap.msg ? 'Sewing the message…' : 'Sewing…';
+  return received && nap.msg ? 'Someone sent you a napkin — sew a reply' : 'Write something to sew, sign it, pick a feeling, and send it';
+}
+
+// ---------- render ----------
+renderer.setAnimationLoop(now => {
+  if (nap.exitAt !== null && nap.exitAt !== Infinity && now >= nap.exitAt) {
+    const a = reduce ? EXIT[1] : now - nap.exitAt;
+    if (a >= EXIT[1]) {
+      const { link, copied } = nap;
+      received = false;
+      newNapkin(now);
+      copied.then(ok => showToast(ok ? 'Sent — link copied' : 'Sent — share this link', link));
+      applyPose(introPose(nap.unfold, reduce ? 1e6 : 0));
+    } else applyPose(exitPose(a));
+  } else applyPose(introPose(nap.unfold, now - nap.born));
+
+  const sewT = now - nap.born, time = reduce ? 0 : now / 1000;
+  shared.uTime.value = time;
+  uSew.value = sewT;
+  const S = nap.stitches;
+  let drew = false;
+  while (nap.shadowDone < S.length && S[nap.shadowDone].birth + S[nap.shadowDone].dur <= sewT) { shadowStitch(S[nap.shadowDone++]); drew = true; }
+  if (drew) shadowTex.needsUpdate = true;
+  updateNeedle(sewT, time);
+
+  const text = status(sewT, now - nap.born);
+  if (hint.textContent !== text) hint.textContent = text;
+  const busy = nap.exitAt !== null || !msgEl.value.trim();
+  if (sendBtn.disabled !== busy) sendBtn.disabled = busy;
+  renderer.render(scene, camera);
+});
+
+// live params from the Animation Engine (timing, unfold and demo changes reload the page)
+window.engine?.onParams(v => {
+  Object.assign(params, v);
+  shared.uGrain.value = params.grain;
+  shared.uClothCol.value.set(...hex3(params.cloth));
+});
+window.engine?.onTheme(s => renderer.setClearColor(clearFor(s), 1));
+</script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="/engine-bridge.js"></script>
+<title>Hello — pet buddy greeting</title>
+<style>
+  html, body { height: 100%; margin: 0 }
+  body { display: grid; place-items: center; background: #09090b; font-family: Inter, system-ui, sans-serif }
+  :root[data-theme="light"] body { background: #fafafa }
+  pet-buddy-greeting { width: min(420px, 90vw) }
+  /* sign follows the theme unless a colour is set */
+  :root[data-theme="light"] pet-buddy-greeting { --pet-buddy-sign-bg: #ffffff; --pet-buddy-sign-color: #18181b; --pet-buddy-sign-border: rgba(0,0,0,.1) }
+</style>
+<script src="./pet-buddy.js"></script>
+</head>
+<body>
+<pet-buddy-greeting></pet-buddy-greeting>
+<script>
+/* @engine:params */
+const params = {
+  text: "Hii! 👋",
+  size: 120,
+  fps: 12,
+  body: "#db744f",
+  highlight: "#ec9a78",
+  shade: "#b95a3c",
+  shadeDark: "#8f4530",
+  signBg: "",
+  signText: ""
+};
+/* @engine:end */
+const el = document.querySelector("pet-buddy-greeting");
+function apply() {
+  el.setAttribute("text", params.text);
+  el.setAttribute("size", params.size);
+  el.setAttribute("fps", params.fps);
+  const vars = { body: params.body, hi: params.highlight, sh: params.shade, sh2: params.shadeDark, "sign-bg": params.signBg, "sign-color": params.signText };
+  for (const k in vars) vars[k] ? el.style.setProperty("--pet-buddy-" + k, vars[k]) : el.style.removeProperty("--pet-buddy-" + k); // empty = theme
+}
+apply();
+window.engine?.onParams((v) => { Object.assign(params, v); apply(); });
+</script>
+</body>
+</html>

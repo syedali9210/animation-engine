@@ -1,0 +1,35 @@
+import type { AnimMeta } from "../../registry";
+import { params } from "./params";
+
+export default {
+  name: "Toast Stack",
+  category: "UI Patterns",
+  tech: ["React", "CSS transitions", "Pointer capture", "Skeleton"],
+  blurb: "Sonner-style stack: enter and leave from the anchored edge, tuck behind, expand on hover, swipe to dismiss.",
+  source: "Built for the engine (the Sonner principles from Emil Kowalski)",
+  behavior: { trigger: "state", frequency: "frequent" },
+  reducedMotion: "full",
+  reducedMotionNote: "Toasts fade in and out in place; nothing slides or scales.",
+  hover: "gated",
+  ui: true,
+  layout: "fill",
+  deps: ["react"],
+  includes: ["_skeleton"],
+  load: () => import("./index"),
+  params,
+  schema: {
+    autoplay: { type: "boolean", label: "Autoplay", group: "Demo" },
+    pushMs: { type: "number", label: "New toast every", group: "Demo", min: 300, max: 6000, step: 100, unit: "ms" },
+    lifeMs: { type: "number", label: "Toast lifetime", group: "Demo", min: 1000, max: 12000, step: 250, unit: "ms" },
+    enterMs: { type: "number", label: "Enter", group: "Timing", min: 60, max: 1000, step: 10, unit: "ms", role: "enter", limit: 400 },
+    exitMs: { type: "number", label: "Exit", group: "Timing", min: 40, max: 1000, step: 10, unit: "ms", role: "exit" },
+    easing: { type: "easing", label: "Easing", group: "Timing", role: "enter" },
+    visible: { type: "number", label: "Visible in stack", group: "Stack", min: 1, max: 6 },
+    peek: { type: "number", label: "Peek offset", group: "Stack", min: 0, max: 30, unit: "px" },
+    stackScale: { type: "number", label: "Scale per toast", group: "Stack", min: 0, max: 0.15, step: 0.005 },
+    gap: { type: "number", label: "Expanded gap", group: "Stack", min: 0, max: 32, unit: "px" },
+    flick: { type: "number", label: "Flick to dismiss", group: "Gesture", min: 0.02, max: 1, step: 0.01, unit: "px/ms" },
+    desktopPosition: { type: "select", label: "From 768px", group: "Breakpoints", options: ["bottom-right", "bottom-center", "top-center"] },
+    shimmer: { type: "select", label: "Skeleton shimmer", group: "Performance", options: ["transform", "background", "off"] },
+  },
+} satisfies Omit<AnimMeta, "id">;

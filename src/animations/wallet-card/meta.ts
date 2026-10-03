@@ -1,0 +1,35 @@
+import type { AnimMeta } from "../../registry";
+import { params } from "./params";
+
+export default {
+  name: "Wallet Card",
+  category: "Cards & Reveals",
+  tech: ["React", "Motion", "Shared layout", "CSS 3D", "Backdrop blur"],
+  blurb: "Apple-Card style: a pill morphs into a sheet, digits hop in as you type, the network logo shatters tile by tile.",
+  source: "Desktop/card animation/src/components/atm-card",
+  behavior: { trigger: "interaction", frequency: "occasional" },
+  reducedMotion: "none",
+  reducedMotionNote: "The sheet morph, hopping characters and tile flips all run regardless of the setting.",
+  hover: "ungated",
+  deps: ["react", "motion"],
+  assets: ["/anim/scratch-card/foil-dots.png", "/anim/scratch-card/noise.png"],
+  load: () => import("./index"),
+  params,
+  schema: {
+    autoplay: { type: "boolean", label: "Autoplay", group: "Demo", hint: "Opens the sheet, types, cycles the banks, closes." },
+    loopMs: { type: "number", label: "Loop every", group: "Demo", min: 7500, max: 20000, step: 250, unit: "ms" },
+    demoNumber: { type: "text", label: "Demo card number", group: "Demo" },
+    demoName: { type: "text", label: "Demo name", group: "Demo" },
+    bank: { type: "select", label: "Starting bank", group: "Demo", options: ["hdfc", "icici", "sbi", "axis"], reload: true },
+    sheetStiffness: { type: "number", label: "Sheet morph stiffness", group: "Springs", min: 80, max: 800 },
+    sheetDamping: { type: "number", label: "Sheet morph damping", group: "Springs", min: 8, max: 80 },
+    hopStiffness: { type: "number", label: "Digit hop stiffness", group: "Springs", min: 100, max: 1200 },
+    hopDamping: { type: "number", label: "Digit hop damping", group: "Springs", min: 5, max: 60 },
+    blur: { type: "number", label: "Backdrop blur", group: "Backdrop", min: 0, max: 48, unit: "px", role: "blur" },
+    backdropMs: { type: "number", label: "Backdrop fade", group: "Backdrop", min: 0, max: 1200, step: 10, unit: "ms" },
+    washMs: { type: "number", label: "Bank colour wash", group: "Card", min: 0, max: 2000, step: 10, unit: "ms" },
+    networkCycleMs: { type: "number", label: "Network logo cycle", group: "Card", min: 800, max: 8000, step: 100, unit: "ms" },
+    tileFlipMs: { type: "number", label: "Tile flip", group: "Card", min: 100, max: 1200, step: 10, unit: "ms" },
+    tileStaggerMs: { type: "number", label: "Tile stagger", group: "Card", min: 0, max: 120, unit: "ms", role: "stagger" },
+  },
+} satisfies Omit<AnimMeta, "id">;

@@ -1,0 +1,13 @@
+/* Card palette per theme (used when the background params are left empty). */
+.ps-card {
+  --ps-bg: radial-gradient(120% 100% at 50% 0%, #ffffff 0%, #e8ecf4 72%);
+  --ps-ink: #0f172a;
+  --ps-sub: #64748b;
+  --ps-ground: rgba(15, 23, 42, 0.08);
+}
+.dark .ps-card {
+  --ps-bg: radial-gradient(120% 100% at 50% 0%, #1c2333 0%, #0b0e17 70%);
+  --ps-ink: #ffffff;
+  --ps-sub: #9ba3b4;
+  --ps-ground: rgba(255, 255, 255, 0.06);
+}

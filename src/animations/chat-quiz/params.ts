@@ -1,0 +1,31 @@
+// Chat Quiz — every tunable property. The Animation Engine rewrites this file on export.
+export const params = {
+  autoplay: true,
+  loopMs: 13000,
+  beatMs: 620,
+  staggerMs: 45,
+  rowEnterMs: 500,
+  rowExitMs: 220,
+  easeOut: "cubic-bezier(0.16, 1, 0.3, 1)",
+  easeIn: "cubic-bezier(0.7, 0, 0.84, 0)",
+  morphStiffness: 230,
+  morphDamping: 30,
+  slideStiffness: 380,
+  slideDamping: 34,
+  snapStiffness: 520,
+  snapDamping: 32,
+  submit: "#2563eb",
+  stage1: "#9cc8ff",
+  stage2: "#c9b6ff",
+  stage3: "#94eae0",
+  fieldDeep: "#40b2ac",
+  fieldBright: "#94eae0",
+  cell: 7,
+  dot: 1.6,
+  spring: 0.1,
+  damping: 0.82,
+  push: 2.2,
+  waveSpeed: 0.72,
+};
+
+export type Params = typeof params;

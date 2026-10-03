@@ -1,0 +1,35 @@
+import type { AnimMeta } from "../../registry";
+import { params } from "./params";
+
+export default {
+  name: "Bottom Sheet",
+  category: "UI Patterns",
+  tech: ["React", "CSS transitions", "Pointer capture", "Skeleton"],
+  blurb: "Drag-to-dismiss sheet on phones that turns into a centred dialog from 768px — on a skeleton loading screen.",
+  source: "Built for the engine (Vaul / iOS sheet behaviour, Emil Kowalski's drawer curve)",
+  behavior: { trigger: "gesture", frequency: "occasional" },
+  reducedMotion: "full",
+  reducedMotionNote: "Travel and scale are replaced by an opacity fade; the skeleton shimmer becomes a gentle pulse.",
+  ui: true,
+  layout: "fill",
+  deps: ["react"],
+  includes: ["_skeleton"],
+  load: () => import("./index"),
+  params,
+  schema: {
+    autoplay: { type: "boolean", label: "Autoplay", group: "Demo" },
+    intervalMs: { type: "number", label: "Open/close cycle", group: "Demo", min: 1200, max: 10000, step: 100, unit: "ms" },
+    enterMs: { type: "number", label: "Enter", group: "Timing", min: 100, max: 1000, step: 10, unit: "ms", role: "enter", limit: 500 },
+    exitMs: { type: "number", label: "Exit", group: "Timing", min: 80, max: 1000, step: 10, unit: "ms", role: "exit", limit: 500 },
+    easing: { type: "easing", label: "Enter easing", group: "Timing", role: "enter" },
+    exitEasing: { type: "easing", label: "Exit easing", group: "Timing", role: "exit" },
+    flick: { type: "number", label: "Flick to dismiss", group: "Gesture", min: 0.02, max: 1, step: 0.01, unit: "px/ms", hint: "Release velocity that dismisses regardless of distance (Emil: ~0.11)." },
+    heightPct: { type: "number", label: "Sheet height", group: "Shape", min: 25, max: 95, unit: "%" },
+    radius: { type: "number", label: "Corner radius", group: "Shape", min: 0, max: 40, unit: "px" },
+    backdrop: { type: "number", label: "Backdrop", group: "Shape", min: 0, max: 0.9, step: 0.05 },
+    desktopAs: { type: "select", label: "From 768px", group: "Breakpoints", options: ["dialog", "sheet"] },
+    scaleFrom: { type: "number", label: "Dialog scale from", group: "Breakpoints", min: 0, max: 1, step: 0.01, role: "scaleFrom" },
+    sheetColor: { type: "color", label: "Sheet", group: "Color" },
+    shimmer: { type: "select", label: "Skeleton shimmer", group: "Performance", options: ["transform", "background", "off"], hint: "transform = compositor only; background = repaints every bone each frame." },
+  },
+} satisfies Omit<AnimMeta, "id">;
