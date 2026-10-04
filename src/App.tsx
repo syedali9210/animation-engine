@@ -126,6 +126,8 @@ export default function App() {
   const [view, setView] = useState<View>(() => store.get("view", "iphone"));
   const [landscape, setLandscape] = useState(false);
   const [posture, setPosture] = useState<Posture>(() => store.get("posture", "open"));
+  // the pose the Duo's hinge is actually moving to; it can start a beat after a posture change, and the stage zooms with it
+  const [duoPose, setDuoPose] = useState({ posture, landscape: false });
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const [reduce, setReduce] = useState(false);
   const [nativeDpr, setNativeDpr] = useState(true);
@@ -455,7 +457,7 @@ export default function App() {
     observer.current.observe(el);
   }, []);
   const compare = devices.length > 1;
-  const sizes = devices.map((d) => frameSize(d, landscape, posture));
+  const sizes = devices.map((d) => (d.fold ? frameSize(d, duoPose.landscape, duoPose.posture) : frameSize(d, landscape, posture)));
   const dock = hasDuo || screen;
   const PAD = phone ? 16 : 40;
   const GAP = phone ? 24 : 48;
@@ -466,14 +468,14 @@ export default function App() {
     1,
   );
   const scale = !compare && zoom !== "fit" ? zoom : Math.max(0.05, fit);
-  const canRotate = devices.some((d) => d.rotates && !(d.fold && posture === "half"));
+  const canRotate = devices.some((d) => d.rotates);
   // when a fold or a rotation changes the device's footprint, the stage zooms with the hinge instead of jumping
   const [morph, setMorph] = useState(false);
   useEffect(() => {
     setMorph(true);
     const t = setTimeout(() => setMorph(false), DUO_MOVE + 150);
     return () => clearTimeout(t);
-  }, [posture, landscape]);
+  }, [duoPose, landscape]);
   const ease = `${DUO_MOVE}ms cubic-bezier(0.32, 0.72, 0, 1)`;
 
   /* ---------- what the inspector reads ---------- */
@@ -575,7 +577,7 @@ export default function App() {
                   style={{ gridColumn: i + 1, gridRow: 1, alignSelf: "end", justifySelf: "center", width: w, height: sizes[i].h * scale, transition: morph ? `width ${ease}, height ${ease}` : undefined }}
                 >
                   <div style={{ transform: `scale(${scale})`, transformOrigin: "0 0", transition: morph ? `transform ${ease}` : undefined }}>
-                    <DeviceFrame d={d} landscape={landscape} dark={dark} posture={posture}>
+                    <DeviceFrame d={d} landscape={landscape} dark={dark} posture={posture} onPose={setDuoPose}>
                       <div data-screen={d.id} className="absolute inset-0 overflow-hidden" style={screen ? { background: scene.bg || SCREEN_BG(dark) } : undefined}>
                         {screen &&
                           media &&
