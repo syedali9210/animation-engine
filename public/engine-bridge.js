@@ -102,12 +102,16 @@
   /* ---------- 2. params ---------- */
   let params = null;
   const handlers = new Set();
+  let bare = false; // on a built screen with something behind it: draw only the animation, no stand-in app
+  const bareHandlers = new Set();
   window.engine = {
     frame, reduce, dpr,
     get scheme() { return scheme; },
     get params() { return params; },
     onParams(fn) { handlers.add(fn); if (params) fn(params); return () => handlers.delete(fn); },
     onTheme(fn) { themeHandlers.add(fn); return () => themeHandlers.delete(fn); },
+    get bare() { return bare; },
+    onBare(fn) { bareHandlers.add(fn); return () => bareHandlers.delete(fn); },
     /** tell the engine something about this frame, e.g. the animation's natural size */
     report(type, data) { post(type, data); },
   };
@@ -120,6 +124,10 @@
         for (const fn of handlers) fn(params);
       }
       if (d.type === "theme") setScheme(d.scheme === "light" ? "light" : "dark");
+      if (d.type === "bare" && !!d.on !== bare) {
+        bare = !!d.on;
+        for (const fn of bareHandlers) fn(bare);
+      }
     } catch (err) {
       post("error", { message: String((err && err.message) || err) });
     }

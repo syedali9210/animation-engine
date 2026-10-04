@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import "./skeleton.css";
 
 /** matchMedia as state. (Inside the engine, the stage bridge answers prefers-reduced-motion for its emulation.) */
@@ -29,39 +29,63 @@ export function useDemoLoop(on: boolean, everyMs: number, setOpen: (open: boolea
   }, [on, everyMs, setOpen]);
 }
 
+/** Inside the engine's screen builder: true when this animation has a background or other layers behind it,
+    and the stand-in app should make way. Outside the engine (an exported pattern) it is always false. */
+export function useBare() {
+  return useSyncExternalStore(
+    (cb) => window.engine?.onBare?.(cb) ?? (() => {}),
+    () => !!window.engine?.bare,
+  );
+}
+
 export const Bone = ({ className = "", style }: { className?: string; style?: CSSProperties }) => <div className={`skel ${className}`} style={style} />;
 
-/** A loading-state app screen. Phone: a single column. md+: a sidebar appears. lg+: a three-up grid. */
-export function AppShell({ shimmer, children, action }: { shimmer: string; children?: ReactNode; action?: ReactNode }) {
+/** A loading-state app screen. Phone: a single column. md+: a sidebar appears. lg+: a three-up grid.
+    Bare (something already behind it on a built screen): only the pattern itself, over what's there.
+    `anchored`: the pattern grows out of its trigger (a popover), so the trigger stays. */
+export function AppShell({ shimmer, children, action, anchored }: { shimmer: string; children?: ReactNode; action?: ReactNode; anchored?: boolean }) {
+  const bare = useBare();
   return (
-    <div className={`skel-${shimmer} absolute inset-0 flex overflow-hidden bg-background text-foreground`}>
-      <aside className="hidden w-56 shrink-0 flex-col gap-3 border-r p-5 md:flex">
-        <Bone className="mb-3 h-8 w-28" />
-        {[78, 64, 70, 52, 60, 46].map((w, i) => (
-          <Bone key={i} className="h-4" style={{ width: `${w}%` }} />
-        ))}
-      </aside>
+    <div className={`skel-${shimmer} absolute inset-0 flex overflow-hidden text-foreground ${bare ? "" : "bg-background"}`}>
+      {!bare && (
+        <aside className="hidden w-56 shrink-0 flex-col gap-3 border-r p-5 md:flex">
+          <Bone className="mb-3 h-8 w-28" />
+          {[78, 64, 70, 52, 60, 46].map((w, i) => (
+            <Bone key={i} className="h-4" style={{ width: `${w}%` }} />
+          ))}
+        </aside>
+      )}
       <main className="flex min-w-0 flex-1 flex-col gap-4 overflow-hidden p-4 pt-16 md:p-6">
         <header className="flex items-center gap-3">
-          <Bone className="size-10 shrink-0 rounded-full" />
+          {!bare && <Bone className="size-10 shrink-0 rounded-full" />}
+          {/* kept when bare, so the trigger (and a popover anchored to it) stays in its place */}
           <div className="flex-1 space-y-2">
-            <Bone className="h-3.5 w-1/3" />
-            <Bone className="h-3 w-1/4" />
+            {!bare && (
+              <>
+                <Bone className="h-3.5 w-1/3" />
+                <Bone className="h-3 w-1/4" />
+              </>
+            )}
           </div>
-          {action}
+          {/* the demo trigger belongs to the stand-in app, so it goes too — unless the pattern grows out of it */}
+          {bare && !anchored ? <div className="invisible">{action}</div> : action}
         </header>
-        <Bone className="h-36 shrink-0 rounded-2xl md:h-48" />
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }, (_, i) => (
-            <div key={i} className="flex items-center gap-3 rounded-2xl p-3 ring-1 ring-border">
-              <Bone className="size-11 shrink-0 rounded-xl" />
-              <div className="flex-1 space-y-2">
-                <Bone className="h-3 w-3/4" />
-                <Bone className="h-3 w-1/2" />
-              </div>
+        {!bare && (
+          <>
+            <Bone className="h-36 shrink-0 rounded-2xl md:h-48" />
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="flex items-center gap-3 rounded-2xl p-3 ring-1 ring-border">
+                  <Bone className="size-11 shrink-0 rounded-xl" />
+                  <div className="flex-1 space-y-2">
+                    <Bone className="h-3 w-3/4" />
+                    <Bone className="h-3 w-1/2" />
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </main>
       {children}
     </div>

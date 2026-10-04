@@ -12,6 +12,9 @@ declare global {
       onParams(fn: (v: Values) => void): () => void;
       onTheme(fn: (scheme: "dark" | "light") => void): () => void;
       report(type: string, data: object): void;
+      /** placed on a built screen with something behind it */
+      bare: boolean;
+      onBare(fn: (bare: boolean) => void): () => void;
     };
   }
 }

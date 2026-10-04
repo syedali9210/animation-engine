@@ -258,8 +258,8 @@ export default function App() {
   // the src each frame said "ready" from: until the current document says it, there's nobody to talk to
   const ready = useRef(new WeakMap<HTMLIFrameElement, string>());
   const sent = useRef(new Map<string, string>()); // last params each frame got, so a drag doesn't re-send them
-  const live = useRef({ values, dark, scene });
-  live.current = { values, dark, scene };
+  const live = useRef({ values, dark, scene, media });
+  live.current = { values, dark, scene, media };
   const valuesOf = (fid: string): Values => {
     const lid = fid.split("~")[1];
     if (!lid) return live.current.values;
@@ -276,6 +276,19 @@ export default function App() {
     post(fid, el, { type: "params", values: v });
   };
   const isReady = (el: HTMLIFrameElement) => ready.current.get(el) === el.src;
+  // A layer is bare (its stand-in skeleton app steps aside) when anything is behind it: a background image, video
+  // or colour, or another visible layer under it. Only a lone animation on an empty screen gets the skeleton.
+  const bareSent = useRef(new Map<string, boolean>());
+  const sendBare = (fid: string, el: HTMLIFrameElement, force = false) => {
+    const lid = fid.split("~")[1];
+    if (!lid) return;
+    const { scene: sc, media: m } = live.current;
+    const below = sc.layers.filter((l) => !l.hidden).findIndex((l) => l.id === lid);
+    const on = !!m || !!sc.bg || below > 0;
+    if (!force && bareSent.current.get(fid) === on) return;
+    bareSent.current.set(fid, on);
+    post(fid, el, { type: "bare", on });
+  };
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
@@ -287,6 +300,7 @@ export default function App() {
         ready.current.set(el, el.src);
         post(d.frame, el, { type: "theme", scheme: live.current.dark ? "dark" : "light" });
         sendParams(d.frame, el, true);
+        sendBare(d.frame, el, true);
       } else if (d.type === "perf") setPerf((p) => ({ ...p, [d.frame]: { ...d, history: [...(p[d.frame]?.history ?? []).slice(-47), d.fps] } }));
       else if (d.type === "error") setErrors((x) => ({ ...x, [d.frame]: d.message }));
       else if (d.type === "size") {
@@ -302,6 +316,7 @@ export default function App() {
     return () => removeEventListener("message", onMessage);
   }, [updateLayer]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => frames.current.forEach((el, fid) => isReady(el) && sendParams(fid, el)), [values, scene]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => frames.current.forEach((el, fid) => isReady(el) && sendBare(fid, el)), [scene, media]); // eslint-disable-line react-hooks/exhaustive-deps
   // theme switches live inside every device — no reload, the animation keeps playing
   useEffect(() => frames.current.forEach((el, fid) => isReady(el) && post(fid, el, { type: "theme", scheme: dark ? "dark" : "light" })), [dark]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -411,33 +426,42 @@ export default function App() {
   }, [openLibrary, updateLayer]);
 
   /* ---------- drag an animation out of the library onto a screen ---------- */
-  const dragRef = useRef(drag);
-  dragRef.current = drag;
-  const dragging = !!drag;
-  useEffect(() => {
-    if (!dragging) return;
+  // Listeners go on the moment the drag starts (not in an effect after the next render), so a quick release can't
+  // slip past and leave a drag stuck; cancel, Escape and the window losing focus all end it.
+  const addRef = useRef(addLayer);
+  addRef.current = addLayer;
+  const beginDrag = (anim: string, x: number, y: number) => {
+    setLibOpen(false);
+    getSelection()?.removeAllRanges();
+    document.body.classList.add("select-none");
+    let over: Drag["over"] = null;
+    setDrag({ anim, x, y, over });
     const move = (e: PointerEvent) => {
       // the shield sits over every iframe, so the screen under the pointer is found by looking through it
       const el = document.elementsFromPoint(e.clientX, e.clientY).find((n): n is HTMLElement => n instanceof HTMLElement && !!n.dataset.screen);
       const r = el?.getBoundingClientRect();
-      const over = el && r ? { device: el.dataset.screen!, cx: (e.clientX - r.left) / r.width, cy: (e.clientY - r.top) / r.height } : null;
+      over = el && r ? { device: el.dataset.screen!, cx: (e.clientX - r.left) / r.width, cy: (e.clientY - r.top) / r.height } : null;
       setDrag((d) => d && { ...d, x: e.clientX, y: e.clientY, over });
     };
-    const up = () => {
-      const d = dragRef.current;
-      if (d?.over) addLayer(d.anim, d.over.cx, d.over.cy);
-      setDrag(null);
-    };
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && setDrag(null);
-    addEventListener("pointermove", move);
-    addEventListener("pointerup", up);
-    addEventListener("keydown", esc);
-    return () => {
+    const end = (drop: boolean) => {
       removeEventListener("pointermove", move);
       removeEventListener("pointerup", up);
+      removeEventListener("pointercancel", cancel);
       removeEventListener("keydown", esc);
+      removeEventListener("blur", cancel);
+      document.body.classList.remove("select-none");
+      if (drop && over) addRef.current(anim, over.cx, over.cy);
+      setDrag(null);
     };
-  }, [dragging]); // eslint-disable-line react-hooks/exhaustive-deps
+    const up = () => end(true);
+    const cancel = () => end(false);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && end(false);
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+    addEventListener("pointercancel", cancel);
+    addEventListener("keydown", esc);
+    addEventListener("blur", cancel);
+  };
 
   // drop an image or video anywhere on the page to put it behind the screen
   useEffect(() => {
@@ -715,14 +739,7 @@ export default function App() {
         else setId(x);
         setLibOpen(false);
       }}
-      onDrag={
-        coarse
-          ? undefined
-          : (x, cx, cy) => {
-              setLibOpen(false);
-              setDrag({ anim: x, x: cx, y: cy, over: null });
-            }
-      }
+      onDrag={coarse ? undefined : beginDrag}
       onClose={wide ? undefined : () => setLibOpen(false)}
       visible={wide || libOpen}
     />

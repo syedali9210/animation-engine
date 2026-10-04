@@ -76,6 +76,7 @@ export default function Popover({ p = defaults }: { p?: Params }) {
   return (
     <AppShell
       shimmer={p.shimmer}
+      anchored
       action={
         <div ref={ref} className="relative">
           {trigger}
