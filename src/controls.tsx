@@ -100,6 +100,8 @@ const AUTO_SWATCH = "linear-gradient(135deg, #ffffff 0 50%, #1c2024 50% 100%)";
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 const longHex = (h: string) => (h.length === 4 ? "#" + [...h.slice(1)].map((c) => c + c).join("") : h).toLowerCase();
 
+export { ColorInput as ColorField };
+
 function ColorInput({ id, value, def, set, label, big }: { id: string; value: string; def: Value; set: (v: string) => void; label: string; big?: boolean }) {
   const [draft, setDraft] = useState<string | null>(null);
   const auto = value === "";

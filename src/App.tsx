@@ -1,32 +1,40 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowCounterClockwise,
+  BookOpen,
   BracketsCurly,
   CaretDown,
   CaretUpDown,
   Columns,
+  Cursor,
   DeviceMobile,
   DeviceRotate,
   DeviceTablet,
   DownloadSimple,
   Gauge,
+  HandPointing,
+  ImageSquare,
   Keyboard,
   Laptop,
   ListChecks,
   Moon,
   PersonArmsSpread,
+  Play,
+  Plus,
   Scan,
   SidebarSimple,
   SlidersHorizontal,
+  Stack,
   Sun,
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
-import { ANIMS, byId, htmlUrl, withDefaults, type Value, type Values } from "./registry";
-import { DEVICES, DeviceFrame, breakpoint, frameSize, viewport, type Device, type DeviceId } from "./devices";
-import Inspector, { Dot, Panel, TAB_LABEL, health, issueCount, verdict, type Ctx, type Perf, type Tab } from "./Inspector";
+import { ANIMS, byId, htmlUrl, withDefaults, type AnimMeta, type Value, type Values } from "./registry";
+import { DEVICES, DUO_MOVE, DeviceFrame, breakpoint, frameSize, viewport, type Device, type DeviceId, type Posture } from "./devices";
+import Inspector, { Dot, Health, Panel, PropertiesPanel, TAB_LABEL, health, issueCount, verdict, type Ctx, type Perf, type Tab } from "./Inspector";
 import Library from "./Library";
 import { AdjustBar, field } from "./controls";
+import { DropOutline, Ghost, LayerHandle, ScreenPanel, aggregate, layerBox, newLayer, type Layer, type Media, type Scene } from "./scene";
 import { Button, Count, Dialog, IconButton, Kbd, Logo, Segmented, Sheet, Switch, useMedia, type Icon } from "./ui";
 import { detectHost, suggest } from "./suggest";
 import { downloadZip } from "./exporter";
@@ -50,18 +58,35 @@ const store = {
 };
 
 type View = DeviceId | "compare";
+type Mode = "single" | "screen";
+type Drag = { anim: string; x: number; y: number; over: { device: string; cx: number; cy: number } | null };
 const fromHash = () => decodeURIComponent(location.hash.slice(1));
 
-// On a dev machine each device frame gets its own site (iphone.localhost, ipad.localhost, …), so Chrome
-// runs it in its own process: one device's main-thread work isn't measured on top of another's.
+// On a dev machine each device gets its own site (iphone.localhost, duo.localhost, …), so Chrome runs it in its own
+// process: one device's main-thread work isn't measured on top of another's. Layers of a built screen share their
+// device's site, so they share a main thread the way one app's views do. Frame ids are "device" or "device~layer".
 const isolate = location.hostname === "localhost";
-const frameOrigin = (device: string) => (isolate ? `${location.protocol}//${device}.localhost:${location.port}` : location.origin);
+const frameOrigin = (fid: string) => {
+  const device = fid.split("~")[0];
+  return isolate ? `${location.protocol}//${device}.localhost:${location.port}` : location.origin;
+};
+const SCREEN_BG = (dark: boolean) => (dark ? "#09090b" : "#fafafa");
 
 const VIEWS: { value: View; label: string; icon: Icon; kbd: string }[] = [
   { value: "iphone", label: "iPhone", icon: DeviceMobile, kbd: "1" },
-  { value: "ipad", label: "iPad", icon: DeviceTablet, kbd: "2" },
-  { value: "macbook", label: "MacBook", icon: Laptop, kbd: "3" },
-  { value: "compare", label: "Compare", icon: Columns, kbd: "4" },
+  { value: "duo", label: "iPhone Duo", icon: BookOpen, kbd: "2" },
+  { value: "ipad", label: "iPad", icon: DeviceTablet, kbd: "3" },
+  { value: "macbook", label: "MacBook", icon: Laptop, kbd: "4" },
+  { value: "compare", label: "Compare", icon: Columns, kbd: "5" },
+];
+const POSTURES: { value: Posture; label: string }[] = [
+  { value: "folded", label: "Folded" },
+  { value: "half", label: "Half open" },
+  { value: "open", label: "Open" },
+];
+const MODES: { value: Mode; label: string; icon: Icon }[] = [
+  { value: "single", label: "Animation", icon: Play },
+  { value: "screen", label: "Screen", icon: Stack },
 ];
 
 const PHONE_TABS: { tab: Tab | null; label: string; icon: Icon }[] = [
@@ -76,13 +101,21 @@ const SHORTCUTS: [string, string[]][] = [
   ["Search animations", ["/"]],
   ["Search from anywhere", [MOD, "K"]],
   ["Previous / next animation", ["[", "]"]],
-  ["iPhone, iPad, MacBook, Compare", ["1", "2", "3", "4"]],
+  ["iPhone, iPhone Duo, iPad, MacBook, Compare", ["1", "2", "3", "4", "5"]],
+  ["Fold / unfold the iPhone Duo", ["F"]],
   ["Rotate", ["L"]],
   ["Replay", ["R"]],
   ["Emulate reduced motion", ["M"]],
   ["Light / dark theme", ["T"]],
+  ["Screen builder: move the picked layer", ["←", "→", "↑", "↓"]],
+  ["Screen builder: remove the picked layer", ["Del"]],
   ["Show shortcuts", ["?"]],
 ];
+
+const loadScene = (): Scene => {
+  const s = store.get<Scene>("scene", { layers: [], bg: "" });
+  return { bg: s.bg ?? "", layers: (s.layers ?? []).filter((l) => byId(l.anim)) };
+};
 
 export default function App() {
   // #id in the URL picks the animation, so a link opens straight to it
@@ -92,6 +125,7 @@ export default function App() {
   const values = useMemo(() => withDefaults(anim, overrides[id]), [anim, overrides, id]);
   const [view, setView] = useState<View>(() => store.get("view", "iphone"));
   const [landscape, setLandscape] = useState(false);
+  const [posture, setPosture] = useState<Posture>(() => store.get("posture", "open"));
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const [reduce, setReduce] = useState(false);
   const [nativeDpr, setNativeDpr] = useState(true);
@@ -101,7 +135,7 @@ export default function App() {
   const [sheet, setSheet] = useState<Tab | null>(null); // phone: the panel pulled up over the stage
   const [perf, setPerf] = useState<Record<string, Perf>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  // which document each device frame has finished loading (frame key + src), for the loading veil
+  // which document each frame has finished loading (frame key + src), for the loading veil
   const [loaded, setLoaded] = useState<Record<string, string>>({});
   // auto-detected until someone picks a class themselves; only an explicit pick is remembered
   const [hostTflops, setHostTflops] = useState(() => store.get("hostGpu", detectHost().tflops));
@@ -111,6 +145,16 @@ export default function App() {
   const [exporting, setExporting] = useState(false);
   const [said, say] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+
+  // Screen builder: animations placed on one screen, run and measured together
+  const [mode, setMode] = useState<Mode>(() => store.get("mode", "single"));
+  const [scene, setScene] = useState<Scene>(loadScene);
+  const [sel, setSel] = useState<string | null>(null);
+  const [arrange, setArrange] = useState(true); // false: pointer goes to the animations instead of moving them
+  const [media, setMediaState] = useState<Media | null>(null); // a dropped image/video background, this tab only
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const [fileDrag, setFileDrag] = useState(false);
+  const screen = mode === "screen";
 
   // the phone layout is for portrait phones; landscape phones and short windows get the side panel
   const phone = useMedia("(max-width: 767.98px) and (orientation: portrait)");
@@ -128,10 +172,16 @@ export default function App() {
   }, []);
   useEffect(() => store.set("values", overrides), [overrides]);
   useEffect(() => store.set("view", view), [view]);
+  useEffect(() => store.set("posture", posture), [posture]);
+  useEffect(() => store.set("mode", mode), [mode]);
   useEffect(() => store.set("keys", keys), [keys]);
   useEffect(() => {
-    document.title = `${anim.name} · Animation Engine`;
-  }, [anim]);
+    const t = setTimeout(() => store.set("scene", scene), 250); // not on every pointer move
+    return () => clearTimeout(t);
+  }, [scene]);
+  useEffect(() => {
+    document.title = `${screen ? "Screen" : anim.name} · Animation Engine`;
+  }, [anim, screen]);
 
   // follows the system theme until someone picks one
   const themePicked = useRef(false);
@@ -145,81 +195,158 @@ export default function App() {
     if (themePicked.current) store.set("dark", dark);
   }, [dark]);
 
-  // phones don't get Compare: three devices side by side would be thumbnails
+  // phones don't get Compare: four devices side by side would be thumbnails
   const shown: View = phone && view === "compare" ? "iphone" : view;
   const devices = useMemo(() => (shown === "compare" ? DEVICES : DEVICES.filter((d) => d.id === shown)), [shown]);
+  const hasDuo = devices.some((d) => d.fold);
 
-  // a fresh document means fresh measurements (theme flips live, so it isn't in here)
-  const loadKey = `${id}|${shown}|${landscape}|${reduce}|${nativeDpr}|${replay}`;
+  /* ---------- screen builder state ---------- */
+  const visible = screen ? scene.layers.filter((l) => !l.hidden) : [];
+  const layer = screen ? (scene.layers.find((l) => l.id === sel) ?? null) : null;
+  const subject = layer ? byId(layer.anim)! : anim; // whose properties the inspector shows
+  const subjectValues = useMemo(() => (layer ? withDefaults(byId(layer.anim)!, layer.values) : values), [layer, values]);
+
+  const updateLayer = useCallback(
+    (lid: string, patch: Partial<Layer>) => setScene((s) => ({ ...s, layers: s.layers.map((l) => (l.id === lid ? { ...l, ...patch } : l)) })),
+    [],
+  );
+  const removeLayer = (lid: string) => {
+    setScene((s) => ({ ...s, layers: s.layers.filter((l) => l.id !== lid) }));
+    setSel((x) => (x === lid ? null : x));
+  };
+  const reorderLayer = (lid: string, dir: 1 | -1) =>
+    setScene((s) => {
+      const i = s.layers.findIndex((l) => l.id === lid);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= s.layers.length) return s;
+      const layers = [...s.layers];
+      [layers[i], layers[j]] = [layers[j], layers[i]];
+      return { ...s, layers };
+    });
+  /** At the drop point, or (a tap) cascading down the screen so new layers don't land on each other. */
+  const addLayer = (aid: string, cx?: number, cy?: number) => {
+    const a = byId(aid);
+    if (!a) return;
+    const n = scene.layers.length;
+    const l = newLayer(a, cx ?? 0.5, cy ?? (n ? 0.22 + 0.14 * (n % 5) : 0.5));
+    setScene((s) => ({ ...s, layers: [...s.layers, l] }));
+    setSel(l.id);
+    setMode("screen");
+    say(`${a.name} added to the screen`);
+  };
+  const switchMode = (m: Mode) => {
+    if (m === "screen" && !scene.layers.length) addLayer(id); // start from what you were looking at
+    else setMode(m);
+  };
+  const setMedia = (f: File | null) => {
+    if (media) URL.revokeObjectURL(media.url);
+    setMediaState(f ? { url: URL.createObjectURL(f), video: f.type.startsWith("video/"), name: f.name } : null);
+  };
+
+  // a fresh document means fresh measurements; the theme flips live and rotation/folding resize, so neither reloads
+  const docKey = `${mode}|${id}|${shown}|${reduce}|${nativeDpr}|${replay}`;
+  const measureKey = `${docKey}|${landscape}|${posture}`;
   useEffect(() => {
     setPerf({});
     setErrors({});
-  }, [loadKey]);
+  }, [measureKey]);
 
   /* ---------- engine <-> iframe messaging ---------- */
   const frames = useRef(new Map<string, HTMLIFrameElement>());
   // the src each frame said "ready" from: until the current document says it, there's nobody to talk to
   const ready = useRef(new WeakMap<HTMLIFrameElement, string>());
-  const live = useRef({ values, dark });
-  live.current = { values, dark };
-  const post = (frame: string, el: HTMLIFrameElement, msg: object) => el.contentWindow?.postMessage({ source: "anim-engine-host", ...msg }, frameOrigin(frame));
-  const broadcast = (msg: object) => frames.current.forEach((el, f) => ready.current.get(el) === el.src && post(f, el, msg));
+  const sent = useRef(new Map<string, string>()); // last params each frame got, so a drag doesn't re-send them
+  const live = useRef({ values, dark, scene });
+  live.current = { values, dark, scene };
+  const valuesOf = (fid: string): Values => {
+    const lid = fid.split("~")[1];
+    if (!lid) return live.current.values;
+    const l = live.current.scene.layers.find((x) => x.id === lid);
+    const a = l && byId(l.anim);
+    return a ? withDefaults(a, l.values) : {};
+  };
+  const post = (fid: string, el: HTMLIFrameElement, msg: object) => el.contentWindow?.postMessage({ source: "anim-engine-host", ...msg }, frameOrigin(fid));
+  const sendParams = (fid: string, el: HTMLIFrameElement, force = false) => {
+    const v = valuesOf(fid);
+    const json = JSON.stringify(v);
+    if (!force && sent.current.get(fid) === json) return;
+    sent.current.set(fid, json);
+    post(fid, el, { type: "params", values: v });
+  };
+  const isReady = (el: HTMLIFrameElement) => ready.current.get(el) === el.src;
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const d = e.data;
-      if (d?.source !== "anim-engine-stage" || e.origin !== frameOrigin(d.frame)) return;
+      if (d?.source !== "anim-engine-stage" || typeof d.frame !== "string" || e.origin !== frameOrigin(d.frame)) return;
       const el = frames.current.get(d.frame);
       if (!el || e.source !== el.contentWindow) return; // a frame we already replaced
       if (d.type === "ready") {
         ready.current.set(el, el.src);
         post(d.frame, el, { type: "theme", scheme: live.current.dark ? "dark" : "light" });
-        post(d.frame, el, { type: "params", values: live.current.values });
+        sendParams(d.frame, el, true);
       } else if (d.type === "perf") setPerf((p) => ({ ...p, [d.frame]: { ...d, history: [...(p[d.frame]?.history ?? []).slice(-47), d.fps] } }));
       else if (d.type === "error") setErrors((x) => ({ ...x, [d.frame]: d.message }));
+      else if (d.type === "size") {
+        // a freshly placed animation reports its natural size a few times as it plays; the box follows until
+        // someone resizes it by hand
+        const lid = d.frame.split("~")[1];
+        const l = live.current.scene.layers.find((x) => x.id === lid);
+        const fit = (n: number) => Math.round(Math.min(1600, Math.max(80, Number(n) || 0)));
+        if (l?.auto) updateLayer(l.id, { w: fit(d.w), h: fit(d.h) });
+      }
     };
     addEventListener("message", onMessage);
     return () => removeEventListener("message", onMessage);
-  }, []);
-  useEffect(() => broadcast({ type: "params", values }), [values]);
+  }, [updateLayer]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => frames.current.forEach((el, fid) => isReady(el) && sendParams(fid, el)), [values, scene]); // eslint-disable-line react-hooks/exhaustive-deps
   // theme switches live inside every device — no reload, the animation keeps playing
-  useEffect(() => broadcast({ type: "theme", scheme: dark ? "dark" : "light" }), [dark]);
+  useEffect(() => frames.current.forEach((el, fid) => isReady(el) && post(fid, el, { type: "theme", scheme: dark ? "dark" : "light" })), [dark]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reloadTimer = useRef(0);
   const setParam = (k: string, v: Value) => {
-    setOverrides((o) => ({ ...o, [id]: { ...o[id], [k]: v } }));
-    if (anim.html && anim.schema[k]?.reload) {
+    if (layer) updateLayer(layer.id, { values: { ...layer.values, [k]: v } });
+    else setOverrides((o) => ({ ...o, [id]: { ...o[id], [k]: v } }));
+    if (subject.html && subject.schema[k]?.reload) {
       clearTimeout(reloadTimer.current);
       reloadTimer.current = window.setTimeout(() => setReplay((r) => r + 1), 400);
     }
   };
   const resetParams = () => {
-    setOverrides(({ [id]: _, ...rest }) => rest);
-    if (anim.html) setReplay((r) => r + 1);
+    if (layer) updateLayer(layer.id, { values: {} });
+    else setOverrides(({ [id]: _, ...rest }) => rest);
+    if (subject.html) setReplay((r) => r + 1);
   };
 
   const exportZip = () => {
     setExporting(true);
     say("");
-    downloadZip(anim, values)
-      .then(() => say(`Downloaded ${anim.id}-export.zip`))
+    downloadZip(subject, subjectValues)
+      .then(() => say(`Downloaded ${subject.id}-export.zip`))
       .catch(() => say("Export failed"))
       .finally(() => setExporting(false));
   };
 
   // the theme a frame loads with is only its first paint; after that it's driven by messages
   const loadTheme = useRef({ key: "", dark });
-  if (loadTheme.current.key !== loadKey) loadTheme.current = { key: loadKey, dark };
-  const src = (d: Device) => {
-    const q = new URLSearchParams({ frame: d.id, rm: reduce ? "1" : "0", cs: loadTheme.current.dark ? "dark" : "light", host: location.origin });
+  if (loadTheme.current.key !== docKey) loadTheme.current = { key: docKey, dark };
+  const src = (d: Device, a: AnimMeta, fid: string) => {
+    const q = new URLSearchParams({ frame: fid, rm: reduce ? "1" : "0", cs: loadTheme.current.dark ? "dark" : "light", host: location.origin });
     if (nativeDpr) q.set("dpr", String(d.dpr));
-    if (!anim.html) q.set("a", anim.id);
-    return `${frameOrigin(d.id)}${anim.html ? htmlUrl(anim) : "/stage.html"}?${q}`;
+    if (!a.html) q.set("a", a.id);
+    if (fid.includes("~")) q.set("layer", "1");
+    return `${frameOrigin(fid)}${a.html ? htmlUrl(a) : "/stage.html"}?${q}`;
+  };
+  const previewSrc = (a: AnimMeta) => {
+    const q = new URLSearchParams({ frame: "ghost", rm: "0", cs: dark ? "dark" : "light", host: location.origin });
+    if (!a.html) q.set("a", a.id);
+    return `${location.origin}${a.html ? htmlUrl(a) : "/stage.html"}?${q}`;
   };
 
   /* ---------- keyboard ---------- */
-  const env = useRef({ wide, keys });
-  env.current = { wide, keys };
+  const firstViewport = viewport(devices[0], landscape, posture);
+  const env = useRef({ wide, keys, screen, sel, vp: firstViewport, layers: scene.layers });
+  env.current = { wide, keys, screen, sel, vp: firstViewport, layers: scene.layers };
   const openLibrary = useCallback((focusSearch: boolean) => {
     if (!env.current.wide) setLibOpen(true);
     if (focusSearch) requestAnimationFrame(() => searchRef.current?.focus());
@@ -231,14 +358,37 @@ export default function App() {
         openLibrary(true);
         return;
       }
-      const typing = e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]");
-      if (e.metaKey || e.ctrlKey || e.altKey || typing || !env.current.keys) return;
+      const t = e.target instanceof Element ? e.target : null;
+      const typing = t?.closest("input, textarea, select, [contenteditable]");
+      if (e.metaKey || e.ctrlKey || e.altKey || typing) return;
+      const s = env.current;
+      // the picked layer: arrows move it, Delete removes it (not character keys, so they stay on)
+      if (s.screen && s.sel && !t?.closest('[role="radiogroup"], [role="tablist"], [role="dialog"], dialog')) {
+        const l = s.layers.find((x) => x.id === s.sel);
+        const step = e.shiftKey ? 10 : 1;
+        const by = ({ ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] } as Record<string, number[]>)[e.key];
+        if (l && by && !l.fill) {
+          e.preventDefault();
+          updateLayer(l.id, { cx: Math.min(1, Math.max(0, l.cx + by[0] / s.vp.w)), cy: Math.min(1, Math.max(0, l.cy + by[1] / s.vp.h)) });
+          return;
+        }
+        if (l && (e.key === "Delete" || e.key === "Backspace")) {
+          e.preventDefault();
+          setScene((sc) => ({ ...sc, layers: sc.layers.filter((x) => x.id !== l.id) }));
+          setSel(null);
+          return;
+        }
+        if (e.key === "Escape") return setSel(null);
+      }
+      if (!s.keys) return;
       const go = (dir: number) => setId((cur) => ANIMS[(ANIMS.findIndex((a) => a.id === cur) + dir + ANIMS.length) % ANIMS.length].id);
       const map: Record<string, () => void> = {
         "1": () => setView("iphone"),
-        "2": () => setView("ipad"),
-        "3": () => setView("macbook"),
-        "4": () => setView("compare"),
+        "2": () => setView("duo"),
+        "3": () => setView("ipad"),
+        "4": () => setView("macbook"),
+        "5": () => setView("compare"),
+        f: () => setPosture((p) => (p === "folded" ? "open" : "folded")),
         l: () => setLandscape((x) => !x),
         t: flipTheme,
         m: () => setReduce((x) => !x),
@@ -256,7 +406,43 @@ export default function App() {
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-  }, [openLibrary]);
+  }, [openLibrary, updateLayer]);
+
+  /* ---------- drag an animation out of the library onto a screen ---------- */
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
+  const dragging = !!drag;
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e: PointerEvent) => {
+      // the shield sits over every iframe, so the screen under the pointer is found by looking through it
+      const el = document.elementsFromPoint(e.clientX, e.clientY).find((n): n is HTMLElement => n instanceof HTMLElement && !!n.dataset.screen);
+      const r = el?.getBoundingClientRect();
+      const over = el && r ? { device: el.dataset.screen!, cx: (e.clientX - r.left) / r.width, cy: (e.clientY - r.top) / r.height } : null;
+      setDrag((d) => d && { ...d, x: e.clientX, y: e.clientY, over });
+    };
+    const up = () => {
+      const d = dragRef.current;
+      if (d?.over) addLayer(d.anim, d.over.cx, d.over.cy);
+      setDrag(null);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setDrag(null);
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", up);
+    addEventListener("keydown", esc);
+    return () => {
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", up);
+      removeEventListener("keydown", esc);
+    };
+  }, [dragging]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // drop an image or video anywhere on the page to put it behind the screen
+  useEffect(() => {
+    const enter = (e: DragEvent) => e.dataTransfer?.types.includes("Files") && setFileDrag(true);
+    addEventListener("dragenter", enter);
+    return () => removeEventListener("dragenter", enter);
+  }, []);
 
   /* ---------- stage fit ---------- */
   const [box, setBox] = useState({ w: 800, h: 600 });
@@ -269,27 +455,54 @@ export default function App() {
     observer.current.observe(el);
   }, []);
   const compare = devices.length > 1;
-  const sizes = devices.map((d) => frameSize(d, landscape));
+  const sizes = devices.map((d) => frameSize(d, landscape, posture));
+  const dock = hasDuo || screen;
   const PAD = phone ? 16 : 40;
   const GAP = phone ? 24 : 48;
+  const DOCK = dock ? 56 : 0;
   const fit = Math.min(
     (box.w - PAD * 2 - GAP * (devices.length - 1)) / sizes.reduce((s, f) => s + f.w, 0),
-    (box.h - PAD * 2 - (compare ? 84 : 44)) / Math.max(...sizes.map((f) => f.h)),
+    (box.h - PAD * 2 - DOCK - (compare ? 84 : 44)) / Math.max(...sizes.map((f) => f.h)),
     1,
   );
   const scale = !compare && zoom !== "fit" ? zoom : Math.max(0.05, fit);
-  const canRotate = devices.some((d) => d.rotates);
+  const canRotate = devices.some((d) => d.rotates && !(d.fold && posture === "half"));
+  // when a fold or a rotation changes the device's footprint, the stage zooms with the hinge instead of jumping
+  const [morph, setMorph] = useState(false);
+  useEffect(() => {
+    setMorph(true);
+    const t = setTimeout(() => setMorph(false), DUO_MOVE + 150);
+    return () => clearTimeout(t);
+  }, [posture, landscape]);
+  const ease = `${DUO_MOVE}ms cubic-bezier(0.32, 0.72, 0, 1)`;
 
-  const suggestions = useMemo(() => suggest(anim, values, perf, devices, { reduce, nativeDpr, hostTflops }), [anim, values, perf, devices, reduce, nativeDpr, hostTflops]);
+  /* ---------- what the inspector reads ---------- */
+  const stagePerf = useMemo(() => {
+    if (!screen) return perf;
+    const out: Record<string, Perf> = {};
+    for (const d of devices) {
+      const ps = visible.map((l) => perf[`${d.id}~${l.id}`]).filter((p): p is Perf => !!p);
+      if (ps.length) out[d.id] = aggregate(ps);
+    }
+    return out;
+  }, [screen, perf, devices, visible]);
+  const subjectPerf = useMemo(() => {
+    if (!layer) return perf;
+    return Object.fromEntries(devices.flatMap((d) => (perf[`${d.id}~${layer.id}`] ? [[d.id, perf[`${d.id}~${layer.id}`]]] : [])));
+  }, [layer, perf, devices]);
+  const suggestions = useMemo(
+    () => (screen && !layer ? [] : suggest(subject, subjectValues, subjectPerf, devices, { reduce, nativeDpr, hostTflops })),
+    [screen, layer, subject, subjectValues, subjectPerf, devices, reduce, nativeDpr, hostTflops],
+  );
   const issues = issueCount(suggestions);
   const ctx: Ctx = {
-    anim,
-    values,
-    overrides: overrides[id] ?? {},
+    anim: subject,
+    values: subjectValues,
+    overrides: layer ? layer.values : (overrides[id] ?? {}),
     setParam,
     resetParams,
     devices,
-    perf,
+    perf: stagePerf,
     reduce,
     setReduce,
     nativeDpr,
@@ -303,7 +516,31 @@ export default function App() {
     suggestions,
     exporting,
     exportZip,
+    empty: screen && !layer ? "Pick a layer on the screen, or in the list above, to tune it." : undefined,
+    breakdown: screen ? visible.map((l) => ({ id: l.id, name: byId(l.anim)!.name, perf: perf[`${devices[0].id}~${l.id}`] })) : undefined,
   };
+  const h = health({ devices, perf: stagePerf, hostTflops });
+  const [loadWord, loadTone] = h ? verdict(h.load) : ["Measuring", "idle" as const];
+  const screenHead = screen && (
+    <ScreenPanel
+      scene={scene}
+      sel={sel}
+      setSel={setSel}
+      update={updateLayer}
+      remove={removeLayer}
+      reorder={reorderLayer}
+      setBg={(bg) => setScene((s) => ({ ...s, bg }))}
+      media={media}
+      setMedia={setMedia}
+      health={
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <Health label="Frame rate" value={h ? `${Math.round(h.fps)} fps` : "—"} tone={!h ? "idle" : h.fps >= 55 ? "good" : h.fps >= 40 ? "warn" : "bad"} onClick={() => setTab("perf")} />
+          <Health label="Device load" value={h ? `${Math.round(h.load * 100)}%` : "—"} title={loadWord} tone={loadTone} onClick={() => setTab("perf")} />
+          <Health label="Audit" value={layer ? (issues ? `${issues} to fix` : "All clear") : "—"} tone={!layer ? "idle" : issues ? "warn" : "good"} onClick={() => setTab("suggest")} />
+        </div>
+      }
+    />
+  );
 
   /* ---------------- phone sheet ---------------- */
   const [lastSheet, setLastSheet] = useState<Tab | null>(null);
@@ -316,38 +553,70 @@ export default function App() {
 
   // devices on row 1 sharing a baseline, captions on row 2, so a caption that wraps never lifts its device
   const stage = (
-    <div ref={stageRef} className="scroll-thin relative min-h-0 flex-1 overflow-auto">
-      <div className="flex min-h-full min-w-full items-center justify-center" style={{ width: "max-content", padding: PAD }}>
+    <div
+      ref={stageRef}
+      className="scroll-thin relative min-h-0 flex-1 overflow-auto"
+      onPointerDown={(e) => screen && !(e.target as Element).closest("[data-screen]") && setSel(null)}
+    >
+      <div className="flex min-h-full min-w-full items-center justify-center" style={{ width: "max-content", padding: PAD, paddingBottom: PAD + DOCK }}>
         <div className="grid" style={{ gridTemplateColumns: `repeat(${devices.length}, auto)`, columnGap: GAP, rowGap: 12 }}>
           {devices.map((d, i) => {
-            const v = viewport(d, landscape);
-            const fps = perf[d.id]?.fps;
-            const frameKey = `${anim.id}-${d.id}-${landscape}-${replay}`;
-            const url = src(d);
-            const doc = `${frameKey}|${url}`;
+            const v = viewport(d, landscape, posture);
+            const items = screen
+              ? visible.map((l) => ({ fid: `${d.id}~${l.id}`, a: byId(l.anim)!, key: `${l.id}-${d.id}-${replay}`, l }))
+              : [{ fid: d.id, a: anim, key: `${anim.id}-${d.id}-${replay}`, l: null as Layer | null }];
+            const fps = stagePerf[d.id]?.fps;
+            const error = items.map((it) => errors[it.fid]).find(Boolean);
             const w = sizes[i].w * scale;
+            const dropping = drag?.over?.device === d.id ? drag : null;
             return (
               <figure key={d.id} className="contents">
-                <div style={{ gridColumn: i + 1, gridRow: 1, alignSelf: "end", justifySelf: "center", width: w, height: sizes[i].h * scale }}>
-                  <div style={{ transform: `scale(${scale})`, transformOrigin: "0 0" }}>
-                    <DeviceFrame d={d} landscape={landscape} dark={dark}>
-                      <iframe
-                        key={frameKey}
-                        ref={(el) => {
-                          if (el) frames.current.set(d.id, el);
-                          else frames.current.delete(d.id);
-                        }}
-                        title={`${anim.name} on ${d.name}`}
-                        src={url}
-                        onLoad={() => setLoaded((l) => ({ ...l, [d.id]: doc }))}
-                        className="block border-0"
-                        style={{ width: v.w, height: v.h, background: dark ? "#09090b" : "#fafafa" }}
-                      />
-                      {loaded[d.id] !== doc && (
-                        <div className="absolute inset-0 grid place-items-center" style={{ background: dark ? "#09090b" : "#fafafa" }}>
-                          <Spinner size={22 / scale} />
-                        </div>
-                      )}
+                <div
+                  style={{ gridColumn: i + 1, gridRow: 1, alignSelf: "end", justifySelf: "center", width: w, height: sizes[i].h * scale, transition: morph ? `width ${ease}, height ${ease}` : undefined }}
+                >
+                  <div style={{ transform: `scale(${scale})`, transformOrigin: "0 0", transition: morph ? `transform ${ease}` : undefined }}>
+                    <DeviceFrame d={d} landscape={landscape} dark={dark} posture={posture}>
+                      <div data-screen={d.id} className="absolute inset-0 overflow-hidden" style={screen ? { background: scene.bg || SCREEN_BG(dark) } : undefined}>
+                        {screen &&
+                          media &&
+                          (media.video ? (
+                            <video src={media.url} autoPlay muted loop playsInline className="absolute inset-0 h-full w-full object-cover" />
+                          ) : (
+                            <img src={media.url} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                          ))}
+                        {items.map(({ fid, a, key, l }) => {
+                          const url = src(d, a, fid);
+                          const doc = `${key}|${url}`;
+                          return (
+                            <div key={key} style={l ? layerBox(l) : { position: "absolute", inset: 0 }}>
+                              <iframe
+                                ref={(el) => {
+                                  if (el) frames.current.set(fid, el);
+                                  else frames.current.delete(fid);
+                                }}
+                                title={`${a.name} on ${d.name}`}
+                                src={url}
+                                onLoad={() => setLoaded((x) => ({ ...x, [fid]: doc }))}
+                                className="block h-full w-full border-0"
+                                style={{ background: l ? "transparent" : SCREEN_BG(dark) }}
+                              />
+                              {loaded[fid] !== doc && (
+                                <div className="absolute inset-0 grid place-items-center" style={{ background: l ? undefined : SCREEN_BG(dark) }}>
+                                  <Spinner size={22 / scale} />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {screen &&
+                          arrange &&
+                          visible.map((l) => (
+                            <LayerHandle key={l.id} l={l} selected={l.id === sel} onSelect={() => setSel(l.id)} onChange={(p) => updateLayer(l.id, p)} screen={v} scale={scale} />
+                          ))}
+                        {dropping?.over && (
+                          <DropOutline l={{ cx: dropping.over.cx, cy: dropping.over.cy, w: 340, h: 340, fill: byId(dropping.anim)?.layout === "fill" }} scale={scale} />
+                        )}
+                      </div>
                     </DeviceFrame>
                   </div>
                 </div>
@@ -357,6 +626,7 @@ export default function App() {
                 >
                   <span className="font-medium text-fg">{compare ? d.short : d.name}</span>
                   <span className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+                    {d.fold && <span className="text-fg-2">{POSTURES.find((p) => p.value === posture)!.label}</span>}
                     <span className="tabular-nums text-fg-2">
                       {v.w}×{v.h}
                     </span>
@@ -369,10 +639,10 @@ export default function App() {
                     )}
                     {reduce && <span className="rounded-[5px] bg-accent-soft px-1.5 text-micro font-medium leading-[18px] text-accent-ink">Reduced motion</span>}
                   </span>
-                  {errors[d.id] && (
+                  {error && (
                     <span role="alert" className="flex w-full items-start justify-center gap-1.5 pt-1 text-left">
                       <WarningCircle size={14} weight="fill" aria-hidden className="mt-px shrink-0 text-bad-ink" />
-                      <span className="mono text-caption text-fg-2">{errors[d.id]}</span>
+                      <span className="mono text-caption text-fg-2">{error}</span>
                     </span>
                   )}
                 </figcaption>
@@ -384,19 +654,41 @@ export default function App() {
     </div>
   );
 
+  // contextual controls under the devices: the Duo's posture, and how the pointer acts on a built screen
+  const dockBar = dock && (
+    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-3">
+      <div className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-xl bg-overlay p-1 shadow-md no-scrollbar">
+        {hasDuo && <Segmented size="sm" label="iPhone Duo posture" value={posture} onChange={setPosture} options={POSTURES} />}
+        {hasDuo && screen && <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-line-strong" />}
+        {screen && (
+          <Segmented
+            size="sm"
+            label="Pointer"
+            value={arrange ? "arrange" : "interact"}
+            onChange={(v) => setArrange(v === "arrange")}
+            options={[
+              { value: "arrange", label: "Arrange", icon: Cursor },
+              { value: "interact", label: "Interact", icon: HandPointing },
+            ]}
+          />
+        )}
+      </div>
+    </div>
+  );
+
   const size = phone ? "lg" : "md";
-  const toggles = (
-    <>
-      <IconButton size={size} label="Emulate reduced motion" kbd="M" active={reduce} onClick={() => setReduce(!reduce)}>
-        <PersonArmsSpread size={18} weight={reduce ? "fill" : "regular"} />
-      </IconButton>
-      <IconButton size={size} label="Device pixel ratio" active={nativeDpr} onClick={() => setNativeDpr(!nativeDpr)}>
-        <Scan size={18} weight={nativeDpr ? "bold" : "regular"} />
-      </IconButton>
-    </>
+  const rmBtn = (
+    <IconButton size={size} label="Emulate reduced motion" kbd="M" active={reduce} onClick={() => setReduce(!reduce)}>
+      <PersonArmsSpread size={18} weight={reduce ? "fill" : "regular"} />
+    </IconButton>
+  );
+  const dprBtn = (
+    <IconButton size={size} label="Device pixel ratio" active={nativeDpr} onClick={() => setNativeDpr(!nativeDpr)}>
+      <Scan size={18} weight={nativeDpr ? "bold" : "regular"} />
+    </IconButton>
   );
   const rotateBtn = (
-    <IconButton size={size} label={landscape ? "Portrait" : "Landscape"} kbd="L" active={landscape} disabled={!canRotate} onClick={() => setLandscape(!landscape)}>
+    <IconButton size={size} label="Rotate" kbd="L" active={landscape} disabled={!canRotate} onClick={() => setLandscape(!landscape)}>
       <DeviceRotate size={18} />
     </IconButton>
   );
@@ -415,14 +707,25 @@ export default function App() {
       id={id}
       overrides={overrides}
       searchRef={searchRef}
+      adding={screen}
       onPick={(x) => {
-        setId(x);
+        if (screen) addLayer(x);
+        else setId(x);
         setLibOpen(false);
       }}
+      onDrag={
+        coarse
+          ? undefined
+          : (x, cx, cy) => {
+              setLibOpen(false);
+              setDrag({ anim: x, x: cx, y: cy, over: null });
+            }
+      }
       onClose={wide ? undefined : () => setLibOpen(false)}
       visible={wide || libOpen}
     />
   );
+  const dragAnim = drag && byId(drag.anim);
   const overlays = (
     <>
       {!wide && (
@@ -461,6 +764,35 @@ export default function App() {
           </div>
         </div>
       </Dialog>
+      {drag && dragAnim && (
+        <>
+          {/* over every iframe, so the pointer stays ours until the drop */}
+          <div aria-hidden className="fixed inset-0 z-[90] cursor-grabbing" />
+          <Ghost a={dragAnim} x={drag.x} y={drag.y} src={previewSrc(dragAnim)} over={!!drag.over} />
+        </>
+      )}
+      {fileDrag && (
+        <div
+          className="fixed inset-0 z-[90] grid place-items-center bg-[rgb(8_10_20/0.35)] p-6"
+          onDragOver={(e) => e.preventDefault()}
+          onDragLeave={(e) => e.target === e.currentTarget && setFileDrag(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setFileDrag(false);
+            const f = [...e.dataTransfer.files].find((x) => /^(image|video)\//.test(x.type));
+            if (!f) return say("Only images and videos can go behind the screen");
+            setMedia(f);
+            if (!screen) switchMode("screen");
+            say(`${f.name} is now the screen background`);
+          }}
+        >
+          <div className="pointer-events-none flex max-w-sm flex-col items-center gap-2 rounded-2xl bg-overlay px-8 py-7 text-center shadow-lg">
+            <ImageSquare size={28} className="text-accent-ink" aria-hidden />
+            <p className="text-title font-semibold">Drop to use as the screen background</p>
+            <p className="text-body text-fg-2">Images and videos sit behind every animation on the screen you're building.</p>
+          </div>
+        </div>
+      )}
       <p aria-live="polite" className="sr-only">
         {said}
       </p>
@@ -469,7 +801,6 @@ export default function App() {
 
   /* ---------------- phone: stage, one-property adjust bar, tab bar, sheets ---------------- */
   if (phone) {
-    const h = health(ctx);
     const content = sheet ?? lastSheet;
     return (
       <div className="flex h-full flex-col bg-canvas">
@@ -480,41 +811,81 @@ export default function App() {
               onClick={() => openLibrary(false)}
               aria-haspopup="dialog"
               aria-expanded={libOpen}
-              aria-label={`${anim.name}, ${anim.category}. Choose another animation`}
+              aria-label={screen ? "Screen builder. Add an animation" : `${anim.name}, ${anim.category}. Choose another animation`}
               className="press flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 py-1.5 text-left hover:bg-surface-2"
             >
               <Logo size={30} />
               <span className="min-w-0">
                 <span className="flex items-center gap-1.5 text-ui font-semibold">
-                  <span className="truncate">{anim.name}</span>
-                  <CaretDown size={13} weight="bold" aria-hidden className="shrink-0 text-fg-3" />
+                  <span className="truncate">{screen ? "Screen builder" : anim.name}</span>
+                  {screen ? <Plus size={13} weight="bold" aria-hidden className="shrink-0 text-fg-3" /> : <CaretDown size={13} weight="bold" aria-hidden className="shrink-0 text-fg-3" />}
                 </span>
                 <span className="block truncate text-caption text-fg-3">
-                  {anim.category} · {ANIMS.findIndex((a) => a.id === id) + 1} of {ANIMS.length}
+                  {screen ? `${visible.length} on screen · tap to add` : `${anim.category} · ${ANIMS.findIndex((a) => a.id === id) + 1} of ${ANIMS.length}`}
                 </span>
               </span>
             </button>
+            <IconButton size="lg" label="Screen builder" active={screen} onClick={() => switchMode(screen ? "single" : "screen")}>
+              <Stack size={18} weight={screen ? "fill" : "regular"} />
+            </IconButton>
             {themeBtn}
           </div>
         </header>
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          <main aria-label="Stage" className="flex min-h-0 flex-1 flex-col">
+          <main aria-label="Stage" className="relative flex min-h-0 flex-1 flex-col">
             <div className="flex h-14 shrink-0 items-center justify-between gap-1 px-2.5">
               <div className="flex items-center gap-1">
-                <Segmented size="lg" label="Device" value={shown} onChange={setView} options={VIEWS.slice(0, 3)} hideLabels="always" />
+                <Segmented label="Device" value={shown} onChange={setView} options={VIEWS.slice(0, 4)} hideLabels="always" />
                 {rotateBtn}
               </div>
               <div className="flex items-center">
-                {toggles}
+                {rmBtn}
                 {replayBtn}
               </div>
             </div>
             {stage}
+            {dockBar}
           </main>
-          <AdjustBar anim={anim} values={values} setParam={setParam} onShowAll={() => setSheet("props")} />
-          <Sheet open={!!sheet} onClose={closeSheet} title={TAB_LABEL[content ?? "props"]}>
-            {content && <Panel tab={content} ctx={{ ...ctx, big: true }} />}
+          {screen && !layer ? (
+            <section aria-label="Screen builder" className="shrink-0 border-t bg-surface px-4 py-4">
+              <p className="text-ui font-medium">{scene.layers.length ? "Pick a layer to tune it" : "Build a screen"}</p>
+              <p className="mt-0.5 text-caption text-fg-3">Tap an animation on the device to pick it, or add one from the library.</p>
+              <div className="mt-3 flex gap-2">
+                <Button size="lg" variant="primary" onClick={() => openLibrary(false)}>
+                  <Plus size={16} weight="bold" aria-hidden />
+                  Add animation
+                </Button>
+                <Button size="lg" onClick={() => setSheet("props")}>
+                  <Stack size={16} aria-hidden />
+                  Layers
+                </Button>
+              </div>
+            </section>
+          ) : (
+            <AdjustBar anim={subject} values={subjectValues} setParam={setParam} onShowAll={() => setSheet("props")} />
+          )}
+          <Sheet open={!!sheet} onClose={closeSheet} title={screen && content === "props" ? "Screen" : TAB_LABEL[content ?? "props"]}>
+            {content === "props" && screen ? (
+              <>
+                {screenHead}
+                {layer && <PropertiesPanel {...ctx} big />}
+              </>
+            ) : (
+              content && (
+                <>
+                  {content === "perf" && (
+                    <div className="flex items-center justify-between gap-3 px-4 pt-4">
+                      <label htmlFor="dpr-phone" className="text-body">
+                        Render at each device's pixel ratio
+                      </label>
+                      <Switch id="dpr-phone" on={nativeDpr} onChange={setNativeDpr} size="lg" label="Render at each device's pixel ratio" />
+                    </div>
+                  )}
+                  <Panel tab={content} ctx={{ ...ctx, big: true }} />
+                </>
+              )
+            )}
           </Sheet>
         </div>
 
@@ -556,27 +927,23 @@ export default function App() {
       </a>
       {wide && <aside className="w-[264px] shrink-0 border-r">{library}</aside>}
 
-      <main aria-label="Stage" className="flex min-w-0 flex-1 flex-col bg-canvas">
+      <main aria-label="Stage" className="relative flex min-w-0 flex-1 flex-col bg-canvas">
         <div className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b bg-surface px-2">
           <div className="flex min-w-0 items-center gap-2">
             {!wide && (
-              <>
-                <IconButton label="Library" kbd="/" expanded={libOpen} onClick={() => openLibrary(!coarse)}>
-                  <SidebarSimple size={18} />
-                </IconButton>
-                <span className="hidden min-w-0 items-center gap-2 lg:flex">
-                  <Logo size={20} />
-                  <span className="truncate text-body font-semibold">Animation Engine</span>
-                </span>
-              </>
+              <IconButton label="Library" kbd="/" expanded={libOpen} onClick={() => openLibrary(!coarse)}>
+                <SidebarSimple size={18} />
+              </IconButton>
             )}
+            <Segmented label="What's on the stage" value={mode} onChange={switchMode} options={MODES} hideLabels="xl" />
           </div>
           <div className="flex items-center gap-1">
-            <Segmented label="Device" value={shown} onChange={setView} options={VIEWS} hideLabels="lg" />
+            <Segmented label="Device" value={shown} onChange={setView} options={VIEWS} hideLabels="always" />
             {rotateBtn}
           </div>
           <div className="flex min-w-0 items-center justify-end gap-0.5">
-            {toggles}
+            {rmBtn}
+            {dprBtn}
             {!compare && (
               <span className="relative ml-1 hidden lg:block">
                 <select
@@ -597,19 +964,21 @@ export default function App() {
           </div>
         </div>
         {stage}
+        {dockBar}
       </main>
 
       <Inspector
         ctx={ctx}
         tab={tab}
         setTab={setTab}
+        head={screenHead || undefined}
         top={
           <>
             {themeBtn}
             <IconButton label="Keyboard shortcuts" kbd="?" onClick={() => setHelp(true)}>
               <Keyboard size={18} />
             </IconButton>
-            <Button variant="primary" className="ml-auto" disabled={exporting} onClick={exportZip}>
+            <Button variant="primary" className="ml-auto" disabled={exporting || (screen && !layer)} onClick={exportZip}>
               <DownloadSimple size={15} weight="bold" aria-hidden />
               {exporting ? "Packing…" : "Export"}
             </Button>

@@ -1,7 +1,9 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AppleLogo, MagnifyingGlass } from "@phosphor-icons/react";
 
-export type DeviceId = "iphone" | "ipad" | "macbook";
+export type DeviceId = "iphone" | "duo" | "ipad" | "macbook";
+/** Foldables only: cover screen, stand (content pinned to the top half), or the inner screen. */
+export type Posture = "folded" | "half" | "open";
 
 export interface Device {
   id: DeviceId;
@@ -16,17 +18,42 @@ export interface Device {
   /** ≈ FP32 GPU throughput from public figures — the knob the GPU-load estimate scales by. */
   tflops: number;
   rotates: boolean;
+  /** Foldables: the inner screen (natural, unrotated) and the half-folded top-half viewport, in pt. */
+  fold?: { inner: { w: number; h: number }; half: { w: number; h: number } };
 }
 
 // Geometry from Apple's published specs: 402x874pt @3x, 62pt display corners, 126x37pt island;
 // 834x1210pt @2x with 18pt corners; 1512x982pt "looks like" with a 32pt menu-bar notch.
+// iPhone Duo (Sept 2026): cover 1398x2034px @460ppi = 466x678pt @3x; inner 1878x2670px @430ppi, which App Store
+// Connect sizes at 951x669pt (downsampled, so a point is the same physical size on both screens);
+// body 117.8mm tall, 84.1mm wide folded, 164.6mm unfolded. Its GPU throughput is an estimate.
 export const DEVICES: Device[] = [
   { id: "iphone", name: "iPhone 16 Pro", short: "iPhone", w: 402, h: 874, dpr: 3, hz: 120, chip: "A18 Pro · 6-core GPU", tflops: 2.3, rotates: true },
+  {
+    id: "duo",
+    name: "iPhone Duo",
+    short: "Duo",
+    w: 466,
+    h: 678,
+    dpr: 3,
+    hz: 120,
+    chip: "A20 Pro · 7-core GPU",
+    tflops: 2.9,
+    rotates: true,
+    fold: { inner: { w: 951, h: 669 }, half: { w: 669, h: 465 } },
+  },
   { id: "ipad", name: "iPad Pro 11″", short: "iPad", w: 834, h: 1210, dpr: 2, hz: 120, chip: "M4 · 10-core GPU", tflops: 4.3, rotates: true },
   { id: "macbook", name: "MacBook Pro 14″", short: "MacBook", w: 1512, h: 950, dpr: 2, hz: 120, chip: "M4 · 10-core GPU", tflops: 4.3, rotates: false },
 ];
 
-export const viewport = (d: Device, landscape: boolean) => (landscape && d.rotates ? { w: d.h, h: d.w } : { w: d.w, h: d.h });
+export function viewport(d: Device, landscape: boolean, posture: Posture = "open") {
+  if (d.fold) {
+    if (posture === "half") return { ...d.fold.half }; // the stand posture has one orientation
+    const v = posture === "open" ? d.fold.inner : { w: d.w, h: d.h };
+    return landscape ? { w: v.h, h: v.w } : { ...v };
+  }
+  return landscape && d.rotates ? { w: d.h, h: d.w } : { w: d.w, h: d.h };
+}
 
 export const BREAKPOINTS = [
   ["2xl", 1536],
@@ -44,7 +71,8 @@ const TABLET = { bezel: 44, ring: 4, radius: 18 };
 const LAPTOP = { side: 25, top: 25, bottom: 34, menu: 32, base: 22, baseOver: 39 };
 
 /** Outer box of the frame at 1:1, so the stage can fit-scale it. */
-export function frameSize(d: Device, landscape: boolean) {
+export function frameSize(d: Device, landscape: boolean, posture: Posture = "open") {
+  if (d.fold) return duoFootprint(posture, landscape);
   const v = viewport(d, landscape);
   if (d.id === "iphone") return { w: v.w + PHONE.bezel * 2 + 8, h: v.h + PHONE.bezel * 2 + 8 };
   if (d.id === "ipad") return { w: v.w + TABLET.bezel * 2 + 6, h: v.h + TABLET.bezel * 2 + 6 };
@@ -114,7 +142,13 @@ const Battery = ({ size = 27 }: { size?: number }) => (
 );
 const SF = { fontFamily: '"SF Pro Display", -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif' };
 
-export function DeviceFrame({ d, landscape, dark, children }: { d: Device; landscape: boolean; dark: boolean; children: ReactNode }) {
+export function DeviceFrame({ d, landscape, dark, posture = "open", children }: { d: Device; landscape: boolean; dark: boolean; posture?: Posture; children: ReactNode }) {
+  if (d.fold)
+    return (
+      <DuoFrame d={d} landscape={landscape} posture={posture} dark={dark}>
+        {children}
+      </DuoFrame>
+    );
   const v = viewport(d, landscape);
   const ink = dark ? "text-white" : "text-black";
   const land = landscape && d.rotates;
@@ -227,6 +261,210 @@ export function DeviceFrame({ d, landscape, dark, children }: { d: Device; lands
             style={land ? { left: "50%", top: S.bezel / 2 - 4, marginLeft: -4 } : { right: S.bezel / 2 - 4, top: "50%", marginTop: -4 }}
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- iPhone Duo: a book-style foldable, modelled in 3D ----------------
+   Unrotated model (pt): hinge vertical at x = 497; A = right half (fixed, buttons on it), B = left half that
+   swings shut over A. Shut, B's back is the cover screen; open, the A and B fronts are the inner screen.
+   The live screen (children) never moves in the DOM, so the animation keeps running across a fold:
+   it fades out, its viewport changes while the hinge swings, and it fades back in at the new size,
+   the way iOS hands an app from one screen to the other. */
+
+const DUO = {
+  pw: 497,
+  ph: 711,
+  r: 56,
+  ring: 3.5,
+  cover: { x: 18, y: 16.5, w: 466, h: 678, r: 46 }, // on the shut stack, hinge side on the left
+  inner: { x: 21.5, y: 21, w: 951, h: 669, r: 40 },
+  fold: 10, // half the crease band the half-folded viewport leaves out
+  island: { x: 939, y: 30.5, w: 30, h: 58 }, // cover screen: vertical, top right
+  camera: { x: 882, y: 81, d: 11 }, // inner screen: under the display, upper right
+};
+export const DUO_MOVE = 620; // ms the hinge takes
+
+export function duoFootprint(posture: Posture, landscape: boolean) {
+  if (posture === "half") return { w: 920, h: 660 }; // the base reaches towards you, so it's wider than the screen half
+  const w = posture === "folded" ? DUO.pw : DUO.pw * 2;
+  return landscape ? { w: DUO.ph, h: w } : { w, h: DUO.ph };
+}
+
+/** Where the live screen sits in the unrotated model. */
+function duoRect(p: Posture) {
+  const { pw, cover, inner, fold } = DUO;
+  if (p === "folded") return { x: pw + cover.x, y: cover.y, w: cover.w, h: cover.h };
+  if (p === "half") return { x: pw + fold, y: inner.y, w: inner.x + inner.w - pw - fold, h: inner.h };
+  return { x: inner.x, y: inner.y, w: inner.w, h: inner.h };
+}
+
+// Night Sky / Star White titanium
+const DUO_MATERIAL = (dark: boolean) =>
+  dark
+    ? "linear-gradient(140deg,#4a5368 0%,#1f2536 22%,#3a4256 48%,#191e2c 72%,#363e52 100%)"
+    : "linear-gradient(140deg,#f6f4f0 0%,#d9d4cc 22%,#f1eee9 48%,#c9c3ba 72%,#e4e0d9 100%)";
+const EASE = "cubic-bezier(0.32, 0.72, 0, 1)";
+const GLASS = "linear-gradient(118deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0) 38%), #050507";
+
+/** One side of a half: titanium band (none along the hinge, where the two halves meet) around black glass. */
+function Face({ radius, material, shade, back, hinge, children }: { radius: string; material: string; shade: number; back?: boolean; hinge?: "left" | "right"; children?: ReactNode }) {
+  const { ring } = DUO;
+  return (
+    <div
+      className="absolute inset-0"
+      style={{
+        borderRadius: radius,
+        background: material,
+        padding: `${ring}px ${hinge === "right" ? 0 : ring}px ${ring}px ${hinge === "left" ? 0 : ring}px`,
+        backfaceVisibility: "hidden",
+        WebkitBackfaceVisibility: "hidden",
+        transform: back ? "rotateY(180deg)" : undefined,
+        transition: `border-radius ${DUO_MOVE}ms ${EASE}`,
+      }}
+    >
+      <div className="relative h-full w-full overflow-hidden" style={{ borderRadius: radius, background: GLASS, transition: `border-radius ${DUO_MOVE}ms ${EASE}` }}>
+        {children}
+      </div>
+      {/* the half that turns away from the light gets darker */}
+      <div className="pointer-events-none absolute inset-0 bg-black" style={{ borderRadius: radius, opacity: shade, transition: `opacity ${DUO_MOVE}ms ${EASE}` }} />
+    </div>
+  );
+}
+
+const DUO_BUTTONS = [
+  { right: -3, top: 140, width: 4.5, height: 76 }, // Touch ID side button
+  { right: -2.5, top: 420, width: 4, height: 52, opacity: 0.8 }, // Camera Control
+  { left: 250, top: -3, width: 56, height: 4.5 }, // volume up
+  { left: 318, top: -3, width: 56, height: 4.5 }, // volume down
+];
+
+function DuoFrame({ d, landscape, posture, dark, children }: { d: Device; landscape: boolean; posture: Posture; dark: boolean; children: ReactNode }) {
+  // the screen shows the posture it has settled in, and hides while the hinge moves
+  const target = `${posture}|${landscape}`;
+  const [shown, setShown] = useState(target);
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    if (shown === target) return;
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setOn(false);
+    const swap = setTimeout(() => setShown(target), still ? 0 : 140);
+    const back = setTimeout(() => setOn(true), still ? 0 : DUO_MOVE + 60);
+    return () => {
+      clearTimeout(swap);
+      clearTimeout(back);
+    };
+  }, [target]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [sp, sl] = shown.split("|") as [Posture, string];
+  const shownLand = sl === "true";
+  const { pw, ph } = DUO;
+  const fp = duoFootprint(posture, landscape);
+  const half = posture === "half";
+  const theta = posture === "folded" ? 180 : half ? 70 : 0; // B's swing: 180 shut over A, 0 flat
+  const move = `transform ${DUO_MOVE}ms ${EASE}`;
+  // one function list in every posture, so the browser interpolates each part instead of a matrix
+  // half open: the hinge sits low, the screen half stands above it and the base comes towards you
+  const root = `translate(${(fp.w - pw * 2) / 2}px, ${half ? 492 - ph / 2 : (fp.h - ph) / 2}px) rotateX(${half ? 14 : 0}deg) rotateZ(${half || landscape ? -90 : 0}deg) translateX(${posture === "folded" ? -pw / 2 : 0}px)`;
+
+  const material = DUO_MATERIAL(dark);
+  const spine = posture === "folded" ? 26 : 0;
+  const aRadius = `${spine}px ${DUO.r}px ${DUO.r}px ${spine}px`;
+  const ink = dark ? "text-white" : "text-black";
+  const r = duoRect(sp);
+  const v = viewport(d, shownLand, sp);
+  const turned = sp === "half" || shownLand; // the model is rotated, so the screen turns back upright
+  const screenRadius = sp === "folded" ? DUO.cover.r : sp === "half" ? `${DUO.inner.r}px ${DUO.inner.r}px 0 0` : DUO.inner.r;
+  const bar = sp !== "folded" || !shownLand; // phones hide the status bar in landscape
+  const fade = `opacity 200ms ${on ? "cubic-bezier(0.23, 1, 0.32, 1)" : "ease"}`;
+
+  return (
+    <div className="relative" style={{ width: fp.w, height: fp.h, perspective: 2400 }}>
+      <div className="absolute left-0 top-0" style={{ width: pw * 2, height: ph, transformStyle: "preserve-3d", transform: root, transition: move }}>
+        {/* A: right half, fixed — Touch ID and Camera Control on its right edge, volume on top */}
+        <div className="absolute" style={{ left: pw, top: 0, width: pw, height: ph, transformStyle: "preserve-3d" }}>
+          {DUO_BUTTONS.map((b, i) => (
+            <span key={i} className="absolute rounded-[2px]" style={{ ...b, background: material }} />
+          ))}
+          <div className="absolute inset-0" style={{ borderRadius: aRadius, boxShadow: "var(--sh-device)", transition: `border-radius ${DUO_MOVE}ms ${EASE}` }} />
+          <Face radius={aRadius} material={material} shade={0} hinge="left">
+            <span className="absolute rounded-full bg-white" style={{ left: DUO.camera.x - pw - DUO.ring, top: DUO.camera.y - DUO.ring, width: DUO.camera.d, height: DUO.camera.d, opacity: 0.06 }} />
+          </Face>
+        </div>
+        {/* B: left half, hinged on its right edge; its back is the cover screen */}
+        <div
+          className="absolute left-0 top-0"
+          style={{ width: pw, height: ph, transformOrigin: "100% 50%", transformStyle: "preserve-3d", transform: `rotateY(${theta}deg) translateZ(-1px)`, transition: move }}
+        >
+          <Face radius={`${DUO.r}px 0 0 ${DUO.r}px`} material={material} shade={(Math.min(theta, 90) / 90) * 0.35} hinge="right" />
+          <Face radius={`26px ${DUO.r}px ${DUO.r}px 26px`} material={material} shade={(Math.min(180 - theta, 90) / 90) * 0.5} back>
+            {/* hinge spine, then the cover screen and its camera */}
+            <span className="absolute inset-y-0 left-0 w-[7px]" style={{ background: "linear-gradient(90deg, rgba(0,0,0,0.4), rgba(255,255,255,0.14), rgba(0,0,0,0.25))" }} />
+            <span className="absolute bg-[#08080a]" style={{ left: DUO.cover.x - DUO.ring, top: DUO.cover.y - DUO.ring, width: DUO.cover.w, height: DUO.cover.h, borderRadius: DUO.cover.r }} />
+            <span className="absolute rounded-full bg-black" style={{ left: DUO.island.x - pw - DUO.ring, top: DUO.island.y - DUO.ring, width: DUO.island.w, height: DUO.island.h }} />
+          </Face>
+        </div>
+
+        {/* the live screen */}
+        <div
+          className="absolute overflow-hidden"
+          style={{
+            left: r.x + r.w / 2 - v.w / 2,
+            top: r.y + r.h / 2 - v.h / 2,
+            width: v.w,
+            height: v.h,
+            borderRadius: screenRadius,
+            transform: `translateZ(3px) rotate(${turned ? 90 : 0}deg)`,
+            opacity: on ? 1 : 0,
+            transition: fade,
+            pointerEvents: on ? undefined : "none",
+          }}
+        >
+          {children}
+          {bar && (
+            <div
+              className={`pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between text-[15px] font-semibold ${ink}`}
+              style={{ height: 34, paddingLeft: 24, paddingRight: sp === "folded" ? 70 : 24, ...SF }}
+            >
+              <span>9:41</span>
+              <span className="flex items-center gap-[6px]">
+                <Signal />
+                <WiFi />
+                <Battery />
+              </span>
+            </div>
+          )}
+          {sp !== "half" && (
+            <div
+              className={`pointer-events-none absolute bottom-[8px] left-1/2 h-[5px] -translate-x-1/2 rounded-full ${dark ? "bg-white/80" : "bg-black/80"}`}
+              style={{ width: sp === "folded" && !shownLand ? 124 : 180 }}
+            />
+          )}
+        </div>
+
+        {/* hardware over the live screen: the cover camera, the inner camera, the crease */}
+        <span
+          className="pointer-events-none absolute rounded-full bg-black"
+          style={{ left: DUO.island.x, top: DUO.island.y, width: DUO.island.w, height: DUO.island.h, transform: "translateZ(4px)", opacity: on && sp === "folded" ? 1 : 0, transition: fade }}
+        />
+        <span
+          className="pointer-events-none absolute rounded-full bg-white"
+          style={{ left: DUO.camera.x, top: DUO.camera.y, width: DUO.camera.d, height: DUO.camera.d, transform: "translateZ(4px)", opacity: on && sp !== "folded" ? 0.06 : 0, transition: fade }}
+        />
+        <span
+          className="pointer-events-none absolute"
+          style={{
+            left: pw - 7,
+            top: DUO.inner.y,
+            width: 14,
+            height: DUO.inner.h,
+            transform: "translateZ(4px)",
+            background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.05) 35%, rgba(0,0,0,0.14) 50%, rgba(255,255,255,0.05) 65%, transparent)",
+            opacity: on && sp === "open" ? 1 : 0,
+            transition: fade,
+          }}
+        />
       </div>
     </div>
   );

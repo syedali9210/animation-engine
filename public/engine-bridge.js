@@ -108,6 +108,8 @@
     get params() { return params; },
     onParams(fn) { handlers.add(fn); if (params) fn(params); return () => handlers.delete(fn); },
     onTheme(fn) { themeHandlers.add(fn); return () => themeHandlers.delete(fn); },
+    /** tell the engine something about this frame, e.g. the animation's natural size */
+    report(type, data) { post(type, data); },
   };
   addEventListener("message", (e) => {
     const d = e.data;

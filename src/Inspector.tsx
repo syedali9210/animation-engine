@@ -44,6 +44,10 @@ export interface Ctx {
   exportZip: () => void;
   /** touch sizing, for the phone sheets */
   big?: boolean;
+  /** Screen mode with no layer picked: what the per-animation panels say instead */
+  empty?: string;
+  /** Screen mode: each layer's own numbers, for the Performance panel */
+  breakdown?: { id: string; name: string; perf?: Perf }[];
 }
 
 export const TAB_LABEL: Record<Tab, string> = { props: "Properties", perf: "Performance", suggest: "Audit", export: "Code" };
@@ -68,14 +72,14 @@ export function health({ devices, perf, hostTflops }: Pick<Ctx, "devices" | "per
 
 /* ---------------- shell (tablet & desktop) ---------------- */
 
-export default function Inspector({ ctx, tab, setTab, top }: { ctx: Ctx; tab: Tab; setTab: (t: Tab) => void; top: ReactNode }) {
+export default function Inspector({ ctx, tab, setTab, top, head }: { ctx: Ctx; tab: Tab; setTab: (t: Tab) => void; top: ReactNode; head?: ReactNode }) {
   const issues = issueCount(ctx.suggestions);
   return (
     <aside id="inspector" aria-label="Inspector" tabIndex={-1} className="flex w-[320px] shrink-0 flex-col border-l bg-surface outline-none xl:w-[360px]">
       <div className="flex h-12 shrink-0 items-center gap-1 border-b px-3">{top}</div>
       {/* the overview scrolls away under sticky tabs, so short screens keep room for the panel */}
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">
-        <Overview ctx={ctx} setTab={setTab} issues={issues} />
+        {head ?? <Overview ctx={ctx} setTab={setTab} issues={issues} />}
         <div className="sticky top-0 z-10 bg-surface">
           <Tabs
             id="insp"
@@ -94,8 +98,9 @@ export default function Inspector({ ctx, tab, setTab, top }: { ctx: Ctx; tab: Ta
 }
 
 export function Panel({ tab, ctx }: { tab: Tab; ctx: Ctx }) {
-  if (tab === "props") return <PropertiesPanel {...ctx} />;
   if (tab === "perf") return <PerformancePanel {...ctx} />;
+  if (ctx.empty) return <p className="px-6 py-10 text-center text-body text-fg-3">{ctx.empty}</p>;
+  if (tab === "props") return <PropertiesPanel {...ctx} />;
   if (tab === "suggest") return <AuditPanel {...ctx} />;
   return <CodePanel {...ctx} />;
 }
@@ -136,7 +141,7 @@ function Overview({ ctx, setTab, issues }: { ctx: Ctx; setTab: (t: Tab) => void;
   );
 }
 
-function Health({ label, value, tone, onClick, title }: { label: string; value: string; tone: Tone; onClick: () => void; title?: string }) {
+export function Health({ label, value, tone, onClick, title }: { label: string; value: string; tone: Tone; onClick: () => void; title?: string }) {
   return (
     <button type="button" onClick={onClick} title={title} className="press min-w-0 rounded-lg bg-surface-2 px-2.5 py-2 text-left hover:bg-surface-3">
       <span className="block truncate text-caption text-fg-2">{label}</span>
@@ -222,7 +227,7 @@ const HOSTS: [number, string][] = [
 ];
 const HOST = detectHost();
 
-export function PerformancePanel({ devices, perf, hostTflops, setHostTflops, nativeDpr, landscape }: Ctx) {
+export function PerformancePanel({ devices, perf, hostTflops, setHostTflops, nativeDpr, landscape, breakdown }: Ctx) {
   return (
     <div className="space-y-4 p-4">
       <p className="text-caption text-fg-3">
@@ -231,6 +236,32 @@ export function PerformancePanel({ devices, perf, hostTflops, setHostTflops, nat
       {devices.map((d) => (
         <DeviceCard key={d.id} d={d} m={perf[d.id]} hostTflops={hostTflops} nativeDpr={nativeDpr} landscape={landscape} />
       ))}
+      {breakdown && breakdown.length > 0 && (
+        <section aria-label="By layer" className="rounded-xl border p-4">
+          <h3 className="text-body font-semibold">By layer</h3>
+          <p className="mt-0.5 text-caption text-fg-3">On {devices[0].name}. Script and GPU add up; frame work is shared by every layer.</p>
+          <table className="mt-3 w-full text-caption">
+            <thead className="text-fg-3">
+              <tr>
+                <th className="pb-1.5 text-left font-normal">Layer</th>
+                <th className="pb-1.5 text-right font-normal">fps</th>
+                <th className="pb-1.5 text-right font-normal">JS</th>
+                <th className="pb-1.5 text-right font-normal">GPU</th>
+              </tr>
+            </thead>
+            <tbody className="tabular-nums">
+              {breakdown.map((b) => (
+                <tr key={b.id} className="border-t">
+                  <td className="max-w-0 truncate py-1.5 pr-2 font-medium">{b.name}</td>
+                  <td className="py-1.5 text-right">{b.perf ? Math.round(b.perf.fps) : "—"}</td>
+                  <td className="py-1.5 text-right">{b.perf ? `${b.perf.jsMs.toFixed(2)} ms` : "—"}</td>
+                  <td className="py-1.5 text-right">{b.perf?.gpuMs != null ? `${b.perf.gpuMs.toFixed(2)} ms` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
       <section className="rounded-xl border p-4">
         <label htmlFor="host-gpu" className="text-body font-medium">
           This computer's GPU

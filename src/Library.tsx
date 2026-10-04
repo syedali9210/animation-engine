@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { MagnifyingGlass, X } from "@phosphor-icons/react";
+import { MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { ANIMS, CATEGORIES, type Values } from "./registry";
 import { CATEGORY_ICON, IconButton, Kbd, Logo } from "./ui";
 
@@ -10,6 +10,8 @@ export default function Library({
   searchRef,
   onClose,
   visible,
+  adding,
+  onDrag,
 }: {
   id: string;
   onPick: (id: string) => void;
@@ -18,9 +20,15 @@ export default function Library({
   /** set when it's a drawer */
   onClose?: () => void;
   visible: boolean;
+  /** Screen builder: a click adds the animation to the screen instead of opening it */
+  adding?: boolean;
+  /** start dragging an animation out towards a screen (mouse and pen; touch adds with a tap) */
+  onDrag?: (id: string, x: number, y: number) => void;
 }) {
   const [query, setQuery] = useState("");
   const current = useRef<HTMLButtonElement>(null);
+  const press = useRef<{ id: string; x: number; y: number } | null>(null);
+  const dragged = useRef(false); // the click that ends a drag isn't a pick
   // keep the animation you're looking at in view: on open, and when [ ] steps through the list
   useEffect(() => {
     if (!visible) return;
@@ -81,25 +89,44 @@ export default function Library({
               </h2>
               <ul>
                 {items.map((a) => {
-                  const on = a.id === id;
+                  const on = !adding && a.id === id;
                   return (
                     <li key={a.id}>
                       <button
                         type="button"
                         ref={on ? current : undefined}
-                        onClick={() => onPick(a.id)}
+                        draggable={false}
+                        onPointerDown={(e) => {
+                          dragged.current = false;
+                          if (onDrag && e.button === 0 && e.pointerType !== "touch") press.current = { id: a.id, x: e.clientX, y: e.clientY };
+                        }}
+                        onPointerMove={(e) => {
+                          const p = press.current;
+                          if (!p || Math.hypot(e.clientX - p.x, e.clientY - p.y) < 6) return;
+                          press.current = null;
+                          dragged.current = true;
+                          onDrag?.(p.id, e.clientX, e.clientY);
+                        }}
+                        onPointerUp={() => (press.current = null)}
+                        onClick={() => (dragged.current ? (dragged.current = false) : onPick(a.id))}
                         aria-current={on || undefined}
-                        className={`group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors duration-100 pointer-coarse:py-2.5 ${on ? "bg-surface-3" : "hover:bg-surface-2"}`}
+                        aria-label={adding ? `Add ${a.name} to the screen` : undefined}
+                        className={`group flex w-full select-none items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors duration-100 pointer-coarse:py-2.5 ${on ? "bg-surface-3" : "hover:bg-surface-2"} ${adding && onDrag ? "cursor-grab" : ""}`}
                       >
                         <span className="min-w-0 flex-1">
                           <span className={`block truncate text-body ${on ? "font-medium text-fg" : "text-fg-2 group-hover:text-fg"}`}>{a.name}</span>
                           <span className={`block truncate text-caption ${on ? "text-fg-2" : "text-fg-3"}`}>{a.tech.slice(0, 3).join(" · ")}</span>
                         </span>
-                        {edited(a.id) && (
+                        {edited(a.id) && !adding && (
                           <>
                             <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
                             <span className="sr-only">(tuned)</span>
                           </>
+                        )}
+                        {adding && (
+                          <span aria-hidden className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-fg-3 group-hover:bg-surface-3 group-hover:text-fg">
+                            <Plus size={14} weight="bold" />
+                          </span>
                         )}
                       </button>
                     </li>
