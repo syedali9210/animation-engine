@@ -25,7 +25,7 @@ export const CATEGORIES = [
   "Navigation",
   "Celebration",
   "UI Patterns",
-  "Screens",
+  "Swiggy App",
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 
@@ -38,6 +38,8 @@ export interface AnimMeta {
   id: string;
   name: string;
   category: Category;
+  /** Within its category, lower comes first (default 0), then by name. */
+  order?: number;
   tech: string[];
   blurb: string;
   /** Where the original lives on disk. */
@@ -70,7 +72,7 @@ const found = import.meta.glob<{ default: Omit<AnimMeta, "id"> }>("./animations/
 
 export const ANIMS: AnimMeta[] = Object.entries(found)
   .map(([path, mod]) => ({ ...mod.default, id: path.split("/")[2] }))
-  .sort((a, b) => CATEGORIES.indexOf(a.category) - CATEGORIES.indexOf(b.category) || a.name.localeCompare(b.name));
+  .sort((a, b) => CATEGORIES.indexOf(a.category) - CATEGORIES.indexOf(b.category) || (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name));
 
 export const byId = (id: string | null) => ANIMS.find((a) => a.id === id);
 

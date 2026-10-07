@@ -59,7 +59,7 @@ export async function exportFiles(a: AnimMeta, v: Values) {
     for (const [path, load] of Object.entries(RAW)) {
       const [, , folder, ...rest] = path.split("/");
       const file = rest.join("/");
-      if (!folders.includes(folder) || file === "meta.ts") continue;
+      if (!folders.includes(folder) || file.startsWith("meta")) continue; // meta.ts and its helpers are the engine's
       files[`${folder}/${file}`] = folder === a.id && file === "params.ts" ? paramsModule(a, v) : await load();
     }
   }

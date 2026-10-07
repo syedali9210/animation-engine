@@ -1,5 +1,5 @@
-/* Swiggy Home — the source's fonts.css and the hand-written rules from its index.css (unlayered, as there,
-   so .fest still wins over the h1's own text-shadow utility). */
+/* Swiggy App — the source's fonts.css and the hand-written rules from its index.css (unlayered, as there,
+   so .fest still wins over the title's own text-shadow utility). */
 @font-face {
   font-family: "Lilita One";
   font-weight: 400;

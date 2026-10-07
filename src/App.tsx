@@ -601,8 +601,8 @@ export default function App() {
             const error = items.map((it) => errors[it.fid]).find(Boolean);
             const w = sizes[i].w * scale;
             const dropping = drag?.over?.device === d.id ? drag : null;
-            // system ink: the top-most layer that asked for one decides
-            const ink = items.map((it) => inks[it.fid]).filter(Boolean).at(-1);
+            // system ink: the top-most layer that asked for one decides (a bare layer asks for nothing)
+            const ink = items.map((it) => inks[it.fid]).filter((x) => x?.top || x?.bottom).at(-1);
             return (
               <figure key={d.id} className="contents">
                 <div

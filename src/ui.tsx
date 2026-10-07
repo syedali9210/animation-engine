@@ -7,7 +7,7 @@ import {
   CreditCard,
   Cursor,
   CursorClick,
-  DeviceMobile,
+  ForkKnife,
   HandGrabbing,
   Infinity as Loop,
   Layout,
@@ -29,7 +29,7 @@ export const CATEGORY_ICON: Record<Category, Icon> = {
   Navigation: Compass,
   Celebration: Confetti,
   "UI Patterns": Layout,
-  Screens: DeviceMobile,
+  "Swiggy App": ForkKnife,
 };
 
 export const TRIGGER: Record<Trigger, { icon: Icon; label: string }> = {
