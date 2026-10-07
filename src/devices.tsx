@@ -65,9 +65,9 @@ export const breakpoint = (w: number) => BREAKPOINTS.find(([, min]) => w >= min)
 
 /* ---------------- frames ---------------- */
 
-const PHONE = { bezel: 15, ring: 4.5, radius: 62 };
-const TABLET = { bezel: 44, ring: 4, radius: 18 };
-const LAPTOP = { side: 25, top: 25, bottom: 34, menu: 32, base: 22, baseOver: 39 };
+export const PHONE = { bezel: 15, ring: 4.5, radius: 62 };
+export const TABLET = { bezel: 44, ring: 4, radius: 18 };
+export const LAPTOP = { side: 25, top: 25, bottom: 34, menu: 32, base: 22, baseOver: 39 };
 
 /** Outer box of the frame at 1:1, so the stage can fit-scale it. */
 export function frameSize(d: Device, landscape: boolean, posture: Posture = "open") {
@@ -79,16 +79,16 @@ export function frameSize(d: Device, landscape: boolean, posture: Posture = "ope
 }
 
 type Side = "left" | "right" | "top";
-type Button = { side: Side; at: number; len: number };
+export type Button = { side: Side; at: number; len: number };
 // Side controls in portrait coordinates (pt from the top / left of the body).
-const PHONE_BUTTONS: Button[] = [
+export const PHONE_BUTTONS: Button[] = [
   { side: "left", at: 196, len: 34 }, // Action button
   { side: "left", at: 268, len: 62 }, // volume up
   { side: "left", at: 348, len: 62 }, // volume down
   { side: "right", at: 300, len: 98 }, // side button
   { side: "right", at: 600, len: 50 }, // Camera Control
 ];
-const TABLET_BUTTONS: Button[] = [
+export const TABLET_BUTTONS: Button[] = [
   { side: "top", at: 760, len: 62 }, // top button (from the left)
   { side: "right", at: 104, len: 52 }, // volume up
   { side: "right", at: 166, len: 52 }, // volume down
@@ -148,6 +148,79 @@ const inks = (dark: boolean, asked?: ScreenInk) => {
   return { top: pick("top") ? "text-white" : "text-black", home: pick("bottom") ? "bg-white/80" : "bg-black/80" };
 };
 
+/** The Mac's menu bar: 32pt over the web viewport, the notch over its middle. */
+export function MenuBar({ dark }: { dark: boolean }) {
+  return (
+    <div className={`flex items-center justify-between px-[18px] text-[13px] ${dark ? "text-white" : "text-black"}`} style={{ ...SF, height: LAPTOP.menu, background: dark ? "rgba(30,30,32,0.94)" : "rgba(242,242,244,0.94)" }}>
+      <div className="flex items-center gap-[22px]">
+        <AppleLogo size={15} weight="fill" />
+        <b className="font-semibold">Safari</b>
+        <span>File</span>
+        <span>Edit</span>
+        <span>View</span>
+        <span>History</span>
+        <span>Window</span>
+      </div>
+      <div className="flex items-center gap-[18px]">
+        <Battery size={24} />
+        <WiFi size={15} />
+        <MagnifyingGlass size={14} weight="bold" />
+        <span>Fri 2 Oct&nbsp;&nbsp;9:41</span>
+      </div>
+    </div>
+  );
+}
+
+/** What iOS draws over an app: the status bar and the home indicator, in the ink the screen asked for. Shared by the
+    frames here and the 3D devices in the mockup studio. `v` is the live screen; `duo`, which Duo screen it's on. */
+export function ScreenChrome({ d, v, landscape, dark, ink, duo }: { d: Device; v: { w: number; h: number }; landscape: boolean; dark: boolean; ink?: ScreenInk; duo?: "cover" | "half" | "full" }) {
+  const bar = inks(dark, ink);
+  if (d.fold)
+    return (
+      <>
+        {/* iOS 27 on iPhone Duo: the status circle tucked into the top-right corner, the time under it */}
+        <div className={`pointer-events-none absolute right-[9px] top-[9px] flex w-[26px] flex-col items-center gap-[3px] ${bar.top}`} style={SF}>
+          <StatusCircle />
+          <span className="text-[11px] font-semibold leading-none tracking-[-0.2px]">9:41</span>
+        </div>
+        {!(landscape && duo === "half") && (
+          <div className={`pointer-events-none absolute bottom-[8px] left-1/2 h-[5px] -translate-x-1/2 rounded-full ${bar.home}`} style={{ width: v.w < 560 ? 124 : 180 }} />
+        )}
+      </>
+    );
+  const phone = d.id === "iphone";
+  const ear = (v.w - 126) / 2; // status-bar slots either side of the Dynamic Island
+  return (
+    <>
+      {phone && !landscape && (
+        <div className={`pointer-events-none absolute inset-x-0 top-0 ${bar.top}`} style={{ height: 54, ...SF }}>
+          <span className="absolute grid place-items-center text-[17px] font-semibold tracking-[-0.4px]" style={{ left: 0, top: 18, width: ear, height: 22 }}>
+            9:41
+          </span>
+          <span className="absolute flex items-center justify-center gap-[6px]" style={{ right: 0, top: 18, width: ear, height: 22 }}>
+            <Signal />
+            <WiFi />
+            <Battery />
+          </span>
+        </div>
+      )}
+      {!phone && (
+        <div className={`pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between px-5 text-[13px] font-semibold ${bar.top}`} style={{ height: 24, ...SF }}>
+          <span>
+            9:41 <span className="ml-1 font-medium">Fri 2 Oct</span>
+          </span>
+          <span className="flex items-center gap-[6px]">
+            <WiFi size={14} />
+            <span className="text-[12px]">100%</span>
+            <Battery size={24} />
+          </span>
+        </div>
+      )}
+      <div className={`pointer-events-none absolute bottom-[8px] left-1/2 h-[5px] -translate-x-1/2 rounded-full ${bar.home}`} style={{ width: phone ? 139 : 200 }} />
+    </>
+  );
+}
+
 export function DeviceFrame({
   d,
   landscape,
@@ -174,8 +247,6 @@ export function DeviceFrame({
       </DuoFrame>
     );
   const v = viewport(d, landscape);
-  const ink = dark ? "text-white" : "text-black";
-  const bar = inks(dark, asked);
   const land = landscape && d.rotates;
 
   if (d.id === "macbook") {
@@ -190,23 +261,7 @@ export function DeviceFrame({
         </div>
         {/* screen: menu bar strip (with the notch) + web viewport */}
         <div className="absolute overflow-hidden bg-black" style={{ left: L.baseOver + L.side, top: L.top, width: v.w, height: v.h + L.menu, borderRadius: "10px 10px 3px 3px" }}>
-          <div className={`flex items-center justify-between px-[18px] text-[13px] ${ink}`} style={{ ...SF, height: L.menu, background: dark ? "rgba(30,30,32,0.94)" : "rgba(242,242,244,0.94)" }}>
-            <div className="flex items-center gap-[22px]">
-              <AppleLogo size={15} weight="fill" />
-              <b className="font-semibold">Safari</b>
-              <span>File</span>
-              <span>Edit</span>
-              <span>View</span>
-              <span>History</span>
-              <span>Window</span>
-            </div>
-            <div className="flex items-center gap-[18px]">
-              <Battery size={24} />
-              <WiFi size={15} />
-              <MagnifyingGlass size={14} weight="bold" />
-              <span>Fri 2 Oct&nbsp;&nbsp;9:41</span>
-            </div>
-          </div>
+          <MenuBar dark={dark} />
           <div className="relative" style={{ width: v.w, height: v.h }}>
             {children}
           </div>
@@ -239,7 +294,7 @@ export function DeviceFrame({
   const bw = v.w + S.bezel * 2;
   const bh = v.h + S.bezel * 2;
   const material = phone ? MATERIAL.titanium(dark) : MATERIAL.aluminium(dark);
-  const ear = (v.w - 126) / 2; // status-bar slots either side of the Dynamic Island
+  const ear = (v.w - 126) / 2; // the Dynamic Island sits between the status bar's two slots
   return (
     <div className="relative" style={{ width: bw + out * 2, height: bh + out * 2 }}>
       <div className="absolute" style={{ left: out, top: out, width: bw, height: bh }}>
@@ -251,33 +306,9 @@ export function DeviceFrame({
         </div>
         <div className="absolute overflow-hidden bg-black" style={{ left: S.bezel, top: S.bezel, width: v.w, height: v.h, borderRadius: S.radius }}>
           {children}
-          {phone && !land && (
-            <div className={`pointer-events-none absolute inset-x-0 top-0 ${bar.top}`} style={{ height: 54, ...SF }}>
-              <span className="absolute grid place-items-center text-[17px] font-semibold tracking-[-0.4px]" style={{ left: 0, top: 18, width: ear, height: 22 }}>
-                9:41
-              </span>
-              <span className="absolute flex items-center justify-center gap-[6px]" style={{ right: 0, top: 18, width: ear, height: 22 }}>
-                <Signal />
-                <WiFi />
-                <Battery />
-              </span>
-            </div>
-          )}
-          {!phone && (
-            <div className={`pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between px-5 text-[13px] font-semibold ${bar.top}`} style={{ height: 24, ...SF }}>
-              <span>
-                9:41 <span className="ml-1 font-medium">Fri 2 Oct</span>
-              </span>
-              <span className="flex items-center gap-[6px]">
-                <WiFi size={14} />
-                <span className="text-[12px]">100%</span>
-                <Battery size={24} />
-              </span>
-            </div>
-          )}
+          <ScreenChrome d={d} v={v} landscape={land} dark={dark} ink={asked} />
           {/* Dynamic Island: 126 x 37pt, 11pt from the top edge (left edge in landscape) */}
           {phone && <div className="pointer-events-none absolute rounded-full bg-black" style={land ? { left: 11, top: (v.h - 126) / 2, width: 37, height: 126 } : { top: 11, left: ear, width: 126, height: 37 }} />}
-          <div className={`pointer-events-none absolute bottom-[8px] left-1/2 h-[5px] -translate-x-1/2 rounded-full ${bar.home}`} style={{ width: phone ? 139 : 200 }} />
         </div>
         {/* iPad Pro M4: front camera on the landscape edge */}
         {!phone && (
@@ -303,7 +334,7 @@ export function DeviceFrame({
      half     — the app stays on A's half, away from the crease (book stance, or stand when rotated).
    The live screen never moves in the DOM, so the animation keeps running and genuinely resizes. */
 
-const DUO = {
+export const DUO = {
   pw: 497,
   ph: 711,
   t: 31, // each half is 5.2 mm thick
@@ -440,7 +471,6 @@ function DuoFrame({ d, landscape, posture, dark, onPose, ink: asked, children }:
   const v = turned ? { w: s.h, h: s.w } : { w: s.w, h: s.h };
   const R = DUO.inner.r;
   const corners = screen === "cover" ? `${DUO.cover.r}px` : screen === "full" ? `${R}px` : turned ? `${R}px ${R}px 0 0` : `0 ${R}px ${R}px 0`;
-  const bar = inks(dark, asked);
   const swing = `transform ${move}`;
   const shade = `opacity ${move}`;
   const radius = (a: string) => ({ borderRadius: a, transition: `border-radius ${move}` });
@@ -596,14 +626,7 @@ function DuoFrame({ d, landscape, posture, dark, onPose, ink: asked, children }:
           }}
         >
           {children}
-          {/* iOS 27 on iPhone Duo: the status circle tucked into the top-right corner, the time under it */}
-          <div className={`pointer-events-none absolute right-[9px] top-[9px] flex w-[26px] flex-col items-center gap-[3px] ${bar.top}`} style={SF}>
-            <StatusCircle />
-            <span className="text-[11px] font-semibold leading-none tracking-[-0.2px]">9:41</span>
-          </div>
-          {!(turned && screen === "half") && (
-            <div className={`pointer-events-none absolute bottom-[8px] left-1/2 h-[5px] -translate-x-1/2 rounded-full ${bar.home}`} style={{ width: v.w < 560 ? 124 : 180 }} />
-          )}
+          <ScreenChrome d={d} v={v} landscape={turned} dark={dark} ink={asked} duo={screen} />
         </div>
 
         {/* hardware in front of the live screen: the cover camera, the inner camera, the crease */}

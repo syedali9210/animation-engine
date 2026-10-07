@@ -4,11 +4,14 @@
      2. hand live params from the engine to the animation   (window.engine.onParams)
      3. measure what the animation costs and report it back  (frame pacing, main-thread work,
         GPU time, canvas fill, which CSS properties the DOM animates)
+   With ?vt=1 (the mockup studio's video export) it measures nothing and instead runs the page on a clock stepped by
+   hand, so every frame of a video is exact (see 4).
    Exported animations work without it: every hook into window.engine is optional. */
 (() => {
   const q = new URLSearchParams(location.search);
   const frame = q.get("frame") || "";
   const reduce = q.get("rm") === "1";
+  const stepped = q.get("vt") === "1";
   let scheme = q.get("cs") === "light" ? "light" : "dark"; // switches live via a "theme" message
   const dpr = parseFloat(q.get("dpr") || "") || 0;
   // The engine may serve each device frame from its own site (iphone.localhost…) so Chrome gives it its
@@ -136,6 +139,7 @@
   addEventListener("unhandledrejection", (e) => post("error", { message: String(e.reason && e.reason.message || e.reason) }));
 
   /* ---------- 3. measurement ---------- */
+  if (!stepped) {
   // main-thread JS: time spent inside every rAF callback the page registers
   const realRaf = window.requestAnimationFrame.bind(window);
   let jsMs = 0;
@@ -253,6 +257,98 @@
     });
     intervals = []; work = []; gpuSamples = []; jsMs = 0; props = new Map();
   }, 100);
+  }
+
+  /* ---------- 4. a clock stepped by hand (?vt=1) ----------
+     Timers, rAF, performance.now / Date.now and every CSS / WAAPI animation follow window.__adv(ms), and smooth
+     scrolls are replayed on it, so a video can be filmed frame by frame and still play back smooth. (The KIPRUN
+     film's clock.js, plus element.scrollTo and a settle step so React commits before the frame is captured.) */
+  if (stepped) {
+    const realST = setTimeout.bind(window);
+    const realSI = setInterval.bind(window);
+    let t = 0;
+    const epoch = Date.now();
+    performance.now = () => t;
+    Date.now = () => epoch + t;
+
+    let rafs = new Map(), rid = 0;
+    window.requestAnimationFrame = (cb) => { rafs.set(++rid, cb); return rid; };
+    window.cancelAnimationFrame = (id) => { rafs.delete(id); };
+    window.requestIdleCallback = (cb) => realST(() => cb({ didTimeout: false, timeRemaining: () => 50 }), 0);
+
+    const timers = new Map(); let tid = 0;
+    const addTimer = (cb, ms, args, every) => { const id = ++tid; timers.set(id, { cb, at: t + Math.max(0, +ms || 0), args, every: every ? Math.max(1, +ms || 0) : 0 }); return id; };
+    window.setTimeout = (cb, ms, ...args) => addTimer(cb, ms, args, false);
+    window.setInterval = (cb, ms, ...args) => addTimer(cb, ms, args, true);
+    window.clearTimeout = window.clearInterval = (id) => { timers.delete(id); };
+
+    // every animation is held and placed by hand, from the moment it was first seen
+    const starts = new WeakMap();
+    const sync = () => {
+      for (const a of document.getAnimations()) {
+        if (!starts.has(a)) starts.set(a, t);
+        if (a.playState !== "paused") a.pause();
+        a.currentTime = (t - starts.get(a)) * (a.playbackRate || 1);
+      }
+    };
+    realSI(sync, 3); // catch new ones between steps, before they run on the real clock
+    const settle = () => new Promise((r) => realST(r, 0));
+
+    window.__adv = async (dt) => {
+      const target = t + dt;
+      for (;;) {
+        let next = null, nid = 0;
+        for (const [id, tm] of timers) if (tm.at <= target && (!next || tm.at < next.at)) { next = tm; nid = id; }
+        if (!next) break;
+        t = next.at;
+        if (next.every) next.at += next.every; else timers.delete(nid);
+        try { if (typeof next.cb === "function") next.cb(...next.args); } catch (e) { console.error(e); }
+        await Promise.resolve();
+      }
+      t = target;
+      const q2 = rafs; rafs = new Map();
+      for (const cb of q2.values()) { try { cb(t); } catch (e) { console.error(e); } }
+      // let React render and commit what the timers and frames changed, then pin any transition that started
+      await settle(); await settle();
+      sync();
+      return t;
+    };
+    window.__now = () => t;
+
+    // smooth scrolls, replayed on this clock (the browser's own would finish in real time)
+    const ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
+    const winTo = window.scrollTo.bind(window), elTo = Element.prototype.scrollTo;
+    const glide = (el, top, left) => {
+      const win = el === window;
+      const y0 = win ? scrollY : el.scrollTop, x0 = win ? scrollX : el.scrollLeft;
+      const dist = Math.max(Math.abs((top ?? y0) - y0), Math.abs((left ?? x0) - x0));
+      const T = Math.min(900, 300 + dist * 0.5), t0 = t;
+      const step = () => {
+        const k = ease(Math.min(1, (t - t0) / T));
+        const o = { top: top == null ? y0 : y0 + (top - y0) * k, left: left == null ? x0 : x0 + (left - x0) * k, behavior: "instant" };
+        if (win) winTo(o); else elTo.call(el, o);
+        if (k < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+    const smooth = (o) => o && typeof o === "object" && o.behavior === "smooth";
+    window.scrollTo = (a, b) => (smooth(a) ? glide(window, a.top, a.left) : typeof a === "object" ? winTo({ ...a, behavior: "instant" }) : winTo(a, b));
+    window.scrollBy = (a, b) => (smooth(a) ? glide(window, a.top == null ? null : scrollY + a.top, a.left == null ? null : scrollX + a.left) : typeof a === "object" ? winTo({ top: scrollY + (a.top || 0), left: scrollX + (a.left || 0), behavior: "instant" }) : winTo(scrollX + a, scrollY + b));
+    Element.prototype.scrollTo = function (a, b) {
+      if (smooth(a)) return glide(this, a.top, a.left);
+      return typeof a === "object" ? elTo.call(this, { ...a, behavior: "instant" }) : elTo.call(this, a, b);
+    };
+    Element.prototype.scrollBy = function (a, b) {
+      if (smooth(a)) return glide(this, a.top == null ? null : this.scrollTop + a.top, a.left == null ? null : this.scrollLeft + a.left);
+      return typeof a === "object" ? elTo.call(this, { top: this.scrollTop + (a.top || 0), left: this.scrollLeft + (a.left || 0), behavior: "instant" }) : elTo.call(this, this.scrollLeft + a, this.scrollTop + b);
+    };
+    const intoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (o) {
+      if (!smooth(o)) return intoView.call(this, o);
+      intoView.call(this, { ...o, behavior: "instant" }); // close enough for a film: the nearest scroller lands there
+    };
+    addEventListener("DOMContentLoaded", () => { root.style.scrollBehavior = "auto"; });
+  }
 
   post("ready", {});
 })();

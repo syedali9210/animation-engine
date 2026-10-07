@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@source "../";
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+body {
+  -webkit-font-smoothing: antialiased;
+}
+#root {
+  position: absolute;
+  inset: 0;
+}

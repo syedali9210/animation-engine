@@ -3,6 +3,7 @@ import {
   ArrowCounterClockwise,
   BookOpen,
   BracketsCurly,
+  Camera,
   CaretDown,
   CaretUpDown,
   Columns,
@@ -38,6 +39,10 @@ import { DropOutline, Ghost, LayerHandle, ScreenPanel, aggregate, layerBox, newL
 import { Button, Count, Dialog, IconButton, Kbd, Logo, Segmented, Sheet, Switch, useMedia, type Icon } from "./ui";
 import { detectHost, suggest } from "./suggest";
 import { downloadZip } from "./exporter";
+import type { RenderConfig } from "./studio/config";
+import { serverMedia, useExport, type ExportKind } from "./studio/export";
+import { DEFAULT_SHOT, backdropCss, finishOf, shotPose, sizeOf, type Shot } from "./studio/shot";
+import { MockupPanel, StudioStage } from "./studio/Studio";
 
 const store = {
   get<T>(k: string, fallback: T): T {
@@ -159,6 +164,13 @@ export default function App() {
   const [fileDrag, setFileDrag] = useState(false);
   const screen = mode === "screen";
 
+  // Mockup studio: the device in 3D under studio light, with the live screen on it, exported as a still or a video
+  const [studioOn, setStudio] = useState(() => store.get("studio", false));
+  const [shot, setShotState] = useState<Shot>(() => ({ ...DEFAULT_SHOT, ...store.get<Partial<Shot>>("shot", {}) }));
+  const setShot = useCallback((patch: Partial<Shot>) => setShotState((x) => ({ ...x, ...patch })), []);
+  const [playing, setPlaying] = useState(false);
+  const exporter = useExport();
+
   // the phone layout is for portrait phones; landscape phones and short windows get the side panel
   const phone = useMedia("(max-width: 767.98px) and (orientation: portrait)");
   const wide = useMedia("(min-width: 1280px)");
@@ -178,6 +190,8 @@ export default function App() {
   useEffect(() => store.set("posture", posture), [posture]);
   useEffect(() => store.set("mode", mode), [mode]);
   useEffect(() => store.set("keys", keys), [keys]);
+  useEffect(() => store.set("studio", studioOn), [studioOn]);
+  useEffect(() => store.set("shot", shot), [shot]);
   useEffect(() => {
     const t = setTimeout(() => store.set("scene", scene), 250); // not on every pointer move
     return () => clearTimeout(t);
@@ -583,6 +597,112 @@ export default function App() {
   }, [sheet]);
   const closeSheet = useCallback(() => setSheet(null), []);
 
+  /** The live frames on a device: the animation, or every visible layer of the built screen. */
+  const itemsFor = (d: Device) =>
+    screen
+      ? visible.map((l) => ({ fid: `${d.id}~${l.id}`, a: byId(l.anim)!, key: `${l.id}-${d.id}-${replay}`, l }))
+      : [{ fid: d.id, a: anim, key: `${anim.id}-${d.id}-${replay}`, l: null as Layer | null }];
+  // system ink: the top-most layer that asked for one decides (a bare layer asks for nothing)
+  const inkFor = (d: Device) => itemsFor(d).map((it) => inks[it.fid]).filter((x) => x?.top || x?.bottom).at(-1);
+  const screenBgFor = () => (screen ? scene.bg || SCREEN_BG(dark) : SCREEN_BG(dark));
+  /** What's on a device's screen: the background file, then the frames. The stage and the studio both draw it. */
+  const screenFor = (d: Device, zoomed: number) => (
+    <>
+      {screen &&
+        media &&
+        (media.video ? (
+          <video src={media.url} autoPlay muted loop playsInline className="absolute inset-0 h-full w-full object-cover" />
+        ) : (
+          <img src={media.url} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        ))}
+      {itemsFor(d).map(({ fid, a, key, l }) => {
+        const url = src(d, a, fid);
+        const doc = `${key}|${url}`;
+        return (
+          <div key={key} style={l ? layerBox(l) : { position: "absolute", inset: 0 }}>
+            <iframe
+              ref={(el) => {
+                if (el) frames.current.set(fid, el);
+                else frames.current.delete(fid);
+              }}
+              title={`${a.name} on ${d.name}`}
+              src={url}
+              onLoad={() => setLoaded((x) => ({ ...x, [fid]: doc }))}
+              className="block h-full w-full border-0"
+              style={{ background: l ? "transparent" : SCREEN_BG(dark) }}
+            />
+            {loaded[fid] !== doc && (
+              <div className="absolute inset-0 grid place-items-center" style={{ background: l ? undefined : SCREEN_BG(dark) }}>
+                <Spinner size={22 / zoomed} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+
+  /* ---------- mockup studio ---------- */
+  const studio = studioOn && !phone;
+  const studioDevice = devices[0];
+  /** Everything the export's own page needs to draw this exact shot by itself. */
+  const renderConfig = async (d: Device): Promise<RenderConfig> => ({
+    device: d.id,
+    posture,
+    landscape: landscape && d.rotates,
+    finish: finishOf(shot, d.id).id,
+    pose: shotPose(shot, d.id),
+    motion: shot.motion,
+    duration: shot.duration,
+    backdrop: backdropCss(shot),
+    shadow: shot.shadow,
+    reflections: shot.reflections,
+    dark,
+    screenBg: screenBgFor(),
+    frames: itemsFor(d).map(({ fid, a, l }) => ({
+      fid,
+      path: a.html ? htmlUrl(a) : "/stage.html",
+      query: { ...(a.html ? {} : { a: a.id }), ...(l ? { layer: "1" } : {}), ...(nativeDpr ? { dpr: String(d.dpr) } : {}) },
+      values: valuesOf(fid),
+      box: l ? layerBox(l) : undefined,
+      bare: !!l && (!!media || !!scene.bg || visible.indexOf(l) > 0),
+    })),
+    media: screen && media ? { url: await serverMedia(media.url), video: media.video } : undefined,
+    preroll: 0,
+  });
+  const exportMockup = (kind: ExportKind) =>
+    exporter.run(kind, () => renderConfig(studioDevice), sizeOf(shot), shot.fps, `${screen ? "screen" : anim.id}-${studioDevice.id}-${shot.angle}`);
+  const studioStage = studio && (
+    <StudioStage
+      d={studioDevice}
+      posture={posture}
+      landscape={landscape}
+      dark={dark}
+      ink={inkFor(studioDevice)}
+      screenBg={screenBgFor()}
+      shot={shot}
+      setShot={setShot}
+      playing={playing}
+      setPlaying={setPlaying}
+    >
+      {screenFor(studioDevice, 1)}
+    </StudioStage>
+  );
+  const mockupHead = studio && (
+    <MockupPanel
+      d={studioDevice}
+      shot={shot}
+      set={setShot}
+      playing={playing}
+      setPlaying={setPlaying}
+      exporting={exporter.state}
+      onExport={exportMockup}
+      canAlpha={shot.backdrop === "transparent"}
+      posture={studioDevice.fold ? posture : undefined}
+      setPosture={setPosture}
+    />
+  );
+
   // devices on row 1 sharing a baseline, captions on row 2, so a caption that wraps never lifts its device
   const stage = (
     <div
@@ -594,15 +714,12 @@ export default function App() {
         <div className="grid" style={{ gridTemplateColumns: `repeat(${devices.length}, auto)`, columnGap: GAP, rowGap: 12 }}>
           {devices.map((d, i) => {
             const v = viewport(d, landscape, posture);
-            const items = screen
-              ? visible.map((l) => ({ fid: `${d.id}~${l.id}`, a: byId(l.anim)!, key: `${l.id}-${d.id}-${replay}`, l }))
-              : [{ fid: d.id, a: anim, key: `${anim.id}-${d.id}-${replay}`, l: null as Layer | null }];
+            const items = itemsFor(d);
             const fps = stagePerf[d.id]?.fps;
             const error = items.map((it) => errors[it.fid]).find(Boolean);
             const w = sizes[i].w * scale;
             const dropping = drag?.over?.device === d.id ? drag : null;
-            // system ink: the top-most layer that asked for one decides (a bare layer asks for nothing)
-            const ink = items.map((it) => inks[it.fid]).filter((x) => x?.top || x?.bottom).at(-1);
+            const ink = inkFor(d);
             return (
               <figure key={d.id} className="contents">
                 <div
@@ -611,37 +728,7 @@ export default function App() {
                   <div style={{ transform: `scale(${scale})`, transformOrigin: "0 0", transition: morph ? `transform ${ease}` : undefined }}>
                     <DeviceFrame d={d} landscape={landscape} dark={dark} posture={posture} onPose={setDuoPose} ink={ink}>
                       <div data-screen={d.id} className="absolute inset-0 overflow-hidden" style={screen ? { background: scene.bg || SCREEN_BG(dark) } : undefined}>
-                        {screen &&
-                          media &&
-                          (media.video ? (
-                            <video src={media.url} autoPlay muted loop playsInline className="absolute inset-0 h-full w-full object-cover" />
-                          ) : (
-                            <img src={media.url} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                          ))}
-                        {items.map(({ fid, a, key, l }) => {
-                          const url = src(d, a, fid);
-                          const doc = `${key}|${url}`;
-                          return (
-                            <div key={key} style={l ? layerBox(l) : { position: "absolute", inset: 0 }}>
-                              <iframe
-                                ref={(el) => {
-                                  if (el) frames.current.set(fid, el);
-                                  else frames.current.delete(fid);
-                                }}
-                                title={`${a.name} on ${d.name}`}
-                                src={url}
-                                onLoad={() => setLoaded((x) => ({ ...x, [fid]: doc }))}
-                                className="block h-full w-full border-0"
-                                style={{ background: l ? "transparent" : SCREEN_BG(dark) }}
-                              />
-                              {loaded[fid] !== doc && (
-                                <div className="absolute inset-0 grid place-items-center" style={{ background: l ? undefined : SCREEN_BG(dark) }}>
-                                  <Spinner size={22 / scale} />
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                        {screenFor(d, scale)}
                         {screen &&
                           arrange &&
                           visible.map((l) => (
@@ -719,6 +806,11 @@ export default function App() {
   const dprBtn = (
     <IconButton size={size} label="Device pixel ratio" active={nativeDpr} onClick={() => setNativeDpr(!nativeDpr)}>
       <Scan size={18} weight={nativeDpr ? "bold" : "regular"} />
+    </IconButton>
+  );
+  const studioBtn = (
+    <IconButton size={size} label={studio ? "Close the mockup studio" : "Mockup studio: 3D device, still and video export"} active={studio} onClick={() => setStudio(!studioOn)}>
+      <Camera size={18} weight={studio ? "fill" : "regular"} />
     </IconButton>
   );
   const rotateBtn = (
@@ -965,8 +1057,10 @@ export default function App() {
             <Segmented label="What's on the stage" value={mode} onChange={switchMode} options={MODES} hideLabels="xl" />
           </div>
           <div className="flex items-center gap-1">
-            <Segmented label="Device" value={shown} onChange={setView} options={VIEWS} hideLabels="always" />
+            <Segmented label="Device" value={shown} onChange={setView} options={studio ? VIEWS.slice(0, 4) : VIEWS} hideLabels="always" />
             {rotateBtn}
+            <span aria-hidden className="mx-0.5 h-4 w-px bg-line-strong" />
+            {studioBtn}
           </div>
           <div className="flex min-w-0 items-center justify-end gap-0.5">
             {rmBtn}
@@ -990,15 +1084,15 @@ export default function App() {
             {replayBtn}
           </div>
         </div>
-        {stage}
-        {dockBar}
+        {studio ? studioStage : stage}
+        {!studio && dockBar}
       </main>
 
       <Inspector
         ctx={ctx}
         tab={tab}
         setTab={setTab}
-        head={screenHead || undefined}
+        head={mockupHead || screenHead || undefined}
         top={
           <>
             {themeBtn}
