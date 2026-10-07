@@ -30,7 +30,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { ANIMS, byId, htmlUrl, withDefaults, type AnimMeta, type Value, type Values } from "./registry";
-import { DEVICES, DUO_MOVE, DeviceFrame, breakpoint, frameSize, viewport, type Device, type DeviceId, type Posture } from "./devices";
+import { DEVICES, DUO_MOVE, DeviceFrame, breakpoint, frameSize, viewport, type Device, type DeviceId, type Posture, type ScreenInk } from "./devices";
 import Inspector, { Dot, Health, Panel, PropertiesPanel, TAB_LABEL, health, issueCount, verdict, type Ctx, type Perf, type Tab } from "./Inspector";
 import Library from "./Library";
 import { AdjustBar, field } from "./controls";
@@ -137,6 +137,7 @@ export default function App() {
   const [sheet, setSheet] = useState<Tab | null>(null); // phone: the panel pulled up over the stage
   const [perf, setPerf] = useState<Record<string, Perf>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [inks, setInks] = useState<Record<string, ScreenInk>>({}); // status bar / home indicator ink a screen asked for
   // which document each frame has finished loading (frame key + src), for the loading veil
   const [loaded, setLoaded] = useState<Record<string, string>>({});
   // auto-detected until someone picks a class themselves; only an explicit pick is remembered
@@ -297,12 +298,17 @@ export default function App() {
       const el = frames.current.get(d.frame);
       if (!el || e.source !== el.contentWindow) return; // a frame we already replaced
       if (d.type === "ready") {
+        setInks(({ [d.frame]: _, ...rest }) => rest); // a fresh document hasn't asked for anything yet
         ready.current.set(el, el.src);
         post(d.frame, el, { type: "theme", scheme: live.current.dark ? "dark" : "light" });
         sendParams(d.frame, el, true);
         sendBare(d.frame, el, true);
       } else if (d.type === "perf") setPerf((p) => ({ ...p, [d.frame]: { ...d, history: [...(p[d.frame]?.history ?? []).slice(-47), d.fps] } }));
       else if (d.type === "error") setErrors((x) => ({ ...x, [d.frame]: d.message }));
+      else if (d.type === "status") {
+        const ink = (k: string) => (d[k] === "light" || d[k] === "dark" ? d[k] : undefined);
+        setInks((x) => ({ ...x, [d.frame]: { top: ink("top"), bottom: ink("bottom") } }));
+      }
       else if (d.type === "size") {
         // a freshly placed animation reports its natural size a few times as it plays; the box follows until
         // someone resizes it by hand
@@ -595,13 +601,15 @@ export default function App() {
             const error = items.map((it) => errors[it.fid]).find(Boolean);
             const w = sizes[i].w * scale;
             const dropping = drag?.over?.device === d.id ? drag : null;
+            // system ink: the top-most layer that asked for one decides
+            const ink = items.map((it) => inks[it.fid]).filter(Boolean).at(-1);
             return (
               <figure key={d.id} className="contents">
                 <div
                   style={{ gridColumn: i + 1, gridRow: 1, alignSelf: "end", justifySelf: "center", width: w, height: sizes[i].h * scale, transition: morph ? `width ${ease}, height ${ease}` : undefined }}
                 >
                   <div style={{ transform: `scale(${scale})`, transformOrigin: "0 0", transition: morph ? `transform ${ease}` : undefined }}>
-                    <DeviceFrame d={d} landscape={landscape} dark={dark} posture={posture} onPose={setDuoPose}>
+                    <DeviceFrame d={d} landscape={landscape} dark={dark} posture={posture} onPose={setDuoPose} ink={ink}>
                       <div data-screen={d.id} className="absolute inset-0 overflow-hidden" style={screen ? { background: scene.bg || SCREEN_BG(dark) } : undefined}>
                         {screen &&
                           media &&

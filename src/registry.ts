@@ -25,6 +25,7 @@ export const CATEGORIES = [
   "Navigation",
   "Celebration",
   "UI Patterns",
+  "Screens",
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 

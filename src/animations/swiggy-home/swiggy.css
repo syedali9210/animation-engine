@@ -1,0 +1,50 @@
+/* Swiggy Home — the source's fonts.css and the hand-written rules from its index.css (unlayered, as there,
+   so .fest still wins over the h1's own text-shadow utility). */
+@font-face {
+  font-family: "Lilita One";
+  font-weight: 400;
+  font-display: swap;
+  src: url(/anim/swiggy-home/fonts/i7dPIFZ9Zz-WBtRtedDbUEY.ttf) format("truetype");
+}
+@font-face {
+  font-family: "Gilroy";
+  font-weight: 400 500;
+  font-display: swap;
+  src: url(/anim/swiggy-home/fonts/Gilroy-Medium.woff2) format("woff2");
+}
+@font-face {
+  font-family: "Gilroy";
+  font-weight: 600;
+  font-display: swap;
+  src: url(/anim/swiggy-home/fonts/Gilroy-SemiBold.woff2) format("woff2");
+}
+@font-face {
+  font-family: "Gilroy";
+  font-weight: 700;
+  font-display: swap;
+  src: url(/anim/swiggy-home/fonts/Gilroy-Bold.woff2) format("woff2");
+}
+@font-face {
+  font-family: "Gilroy";
+  font-weight: 800 900;
+  font-display: swap;
+  src: url(/anim/swiggy-home/fonts/Gilroy-ExtraBold.woff2) format("woff2");
+}
+
+.swiggy {
+  font-family: "Gilroy", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.fest {
+  font-family: "Lilita One", cursive;
+  letter-spacing: 0.5px;
+  color: #ffe500;
+  -webkit-text-stroke: 1.5px #7a0a35;
+  text-shadow: 0 3px 0 #e0177a, 0 5px 0 #6b0a2c;
+}

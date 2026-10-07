@@ -141,30 +141,41 @@ const Battery = ({ size = 27 }: { size?: number }) => (
 );
 const SF = { fontFamily: '"SF Pro Display", -apple-system, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif' };
 
+/** iOS lets a screen pick light or dark system ink (UIStatusBarStyle); unasked, it follows the theme. */
+export type ScreenInk = { top?: "light" | "dark"; bottom?: "light" | "dark" };
+const inks = (dark: boolean, asked?: ScreenInk) => {
+  const pick = (k: "top" | "bottom") => (asked?.[k] ?? (dark ? "light" : "dark")) === "light";
+  return { top: pick("top") ? "text-white" : "text-black", home: pick("bottom") ? "bg-white/80" : "bg-black/80" };
+};
+
 export function DeviceFrame({
   d,
   landscape,
   dark,
   posture = "open",
   onPose,
+  ink: asked,
   children,
 }: {
   d: Device;
   landscape: boolean;
   dark: boolean;
   posture?: Posture;
+  /** what the screen under them asked for: light or dark status bar (top) and home indicator (bottom) */
+  ink?: ScreenInk;
   /** foldables: the pose the hinge is moving to, as it starts moving */
   onPose?: (p: { posture: Posture; landscape: boolean }) => void;
   children: ReactNode;
 }) {
   if (d.fold)
     return (
-      <DuoFrame d={d} landscape={landscape} posture={posture} dark={dark} onPose={onPose}>
+      <DuoFrame d={d} landscape={landscape} posture={posture} dark={dark} onPose={onPose} ink={asked}>
         {children}
       </DuoFrame>
     );
   const v = viewport(d, landscape);
   const ink = dark ? "text-white" : "text-black";
+  const bar = inks(dark, asked);
   const land = landscape && d.rotates;
 
   if (d.id === "macbook") {
@@ -241,7 +252,7 @@ export function DeviceFrame({
         <div className="absolute overflow-hidden bg-black" style={{ left: S.bezel, top: S.bezel, width: v.w, height: v.h, borderRadius: S.radius }}>
           {children}
           {phone && !land && (
-            <div className={`pointer-events-none absolute inset-x-0 top-0 ${ink}`} style={{ height: 54, ...SF }}>
+            <div className={`pointer-events-none absolute inset-x-0 top-0 ${bar.top}`} style={{ height: 54, ...SF }}>
               <span className="absolute grid place-items-center text-[17px] font-semibold tracking-[-0.4px]" style={{ left: 0, top: 18, width: ear, height: 22 }}>
                 9:41
               </span>
@@ -253,7 +264,7 @@ export function DeviceFrame({
             </div>
           )}
           {!phone && (
-            <div className={`pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between px-5 text-[13px] font-semibold ${ink}`} style={{ height: 24, ...SF }}>
+            <div className={`pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between px-5 text-[13px] font-semibold ${bar.top}`} style={{ height: 24, ...SF }}>
               <span>
                 9:41 <span className="ml-1 font-medium">Fri 2 Oct</span>
               </span>
@@ -266,7 +277,7 @@ export function DeviceFrame({
           )}
           {/* Dynamic Island: 126 x 37pt, 11pt from the top edge (left edge in landscape) */}
           {phone && <div className="pointer-events-none absolute rounded-full bg-black" style={land ? { left: 11, top: (v.h - 126) / 2, width: 37, height: 126 } : { top: 11, left: ear, width: 126, height: 37 }} />}
-          <div className={`pointer-events-none absolute bottom-[8px] left-1/2 h-[5px] -translate-x-1/2 rounded-full ${dark ? "bg-white/80" : "bg-black/80"}`} style={{ width: phone ? 139 : 200 }} />
+          <div className={`pointer-events-none absolute bottom-[8px] left-1/2 h-[5px] -translate-x-1/2 rounded-full ${bar.home}`} style={{ width: phone ? 139 : 200 }} />
         </div>
         {/* iPad Pro M4: front camera on the landscape edge */}
         {!phone && (
@@ -372,7 +383,7 @@ function StatusCircle() {
   );
 }
 
-function DuoFrame({ d, landscape, posture, dark, onPose, children }: { d: Device; landscape: boolean; posture: Posture; dark: boolean; onPose?: (p: { posture: Posture; landscape: boolean }) => void; children: ReactNode }) {
+function DuoFrame({ d, landscape, posture, dark, onPose, ink: asked, children }: { d: Device; landscape: boolean; posture: Posture; dark: boolean; onPose?: (p: { posture: Posture; landscape: boolean }) => void; ink?: ScreenInk; children: ReactNode }) {
   const [screen, setScreen] = useState<Screen>(SCREEN_OF[posture]);
   const [theta, setTheta] = useState(THETA[posture]);
   const [pose, setPose] = useState({ posture, landscape }); // where the camera is, and which way the device is turned
@@ -429,7 +440,7 @@ function DuoFrame({ d, landscape, posture, dark, onPose, children }: { d: Device
   const v = turned ? { w: s.h, h: s.w } : { w: s.w, h: s.h };
   const R = DUO.inner.r;
   const corners = screen === "cover" ? `${DUO.cover.r}px` : screen === "full" ? `${R}px` : turned ? `${R}px ${R}px 0 0` : `0 ${R}px ${R}px 0`;
-  const ink = dark ? "text-white" : "text-black";
+  const bar = inks(dark, asked);
   const swing = `transform ${move}`;
   const shade = `opacity ${move}`;
   const radius = (a: string) => ({ borderRadius: a, transition: `border-radius ${move}` });
@@ -586,12 +597,12 @@ function DuoFrame({ d, landscape, posture, dark, onPose, children }: { d: Device
         >
           {children}
           {/* iOS 27 on iPhone Duo: the status circle tucked into the top-right corner, the time under it */}
-          <div className={`pointer-events-none absolute right-[9px] top-[9px] flex w-[26px] flex-col items-center gap-[3px] ${ink}`} style={SF}>
+          <div className={`pointer-events-none absolute right-[9px] top-[9px] flex w-[26px] flex-col items-center gap-[3px] ${bar.top}`} style={SF}>
             <StatusCircle />
             <span className="text-[11px] font-semibold leading-none tracking-[-0.2px]">9:41</span>
           </div>
           {!(turned && screen === "half") && (
-            <div className={`pointer-events-none absolute bottom-[8px] left-1/2 h-[5px] -translate-x-1/2 rounded-full ${dark ? "bg-white/80" : "bg-black/80"}`} style={{ width: v.w < 560 ? 124 : 180 }} />
+            <div className={`pointer-events-none absolute bottom-[8px] left-1/2 h-[5px] -translate-x-1/2 rounded-full ${bar.home}`} style={{ width: v.w < 560 ? 124 : 180 }} />
           )}
         </div>
 

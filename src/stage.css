@@ -53,8 +53,11 @@
   --pbh-surface: var(--card);
 }
 
-* {
-  border-color: var(--color-border);
+/* in the base layer (as shadcn has it), so an animation's own border-* colour utilities still win */
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
 }
 html,
 body,

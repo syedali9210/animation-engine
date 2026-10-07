@@ -7,6 +7,7 @@ import {
   CreditCard,
   Cursor,
   CursorClick,
+  DeviceMobile,
   HandGrabbing,
   Infinity as Loop,
   Layout,
@@ -28,6 +29,7 @@ export const CATEGORY_ICON: Record<Category, Icon> = {
   Navigation: Compass,
   Celebration: Confetti,
   "UI Patterns": Layout,
+  Screens: DeviceMobile,
 };
 
 export const TRIGGER: Record<Trigger, { icon: Icon; label: string }> = {
