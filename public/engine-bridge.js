@@ -294,7 +294,13 @@
     realSI(sync, 3); // catch new ones between steps, before they run on the real clock
     const settle = () => new Promise((r) => realST(r, 0));
 
+    // in display-frame steps: animation code reads one long jump as a stall (GSAP's lag smoothing drops it, springs
+    // overshoot), so a still pre-rolled 1.8 s or a 30 fps frame plays out frame by frame, the way a screen would show it
     window.__adv = async (dt) => {
+      for (let left = dt; left > 1e-6; left -= 1000 / 60) await tick(Math.min(left, 1000 / 60));
+      return t;
+    };
+    const tick = async (dt) => {
       const target = t + dt;
       for (;;) {
         let next = null, nid = 0;

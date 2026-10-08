@@ -3,6 +3,7 @@ import { params } from "./params";
 
 export default {
   name: "Modal",
+  poster: { at: 4300, y: 0.86 },
   category: "UI Patterns",
   tech: ["React", "CSS transitions", "Skeleton"],
   blurb: "Centred dialog that scales in from 0.96 and docks to the bottom edge on phones.",

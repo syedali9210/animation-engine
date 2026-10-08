@@ -4,12 +4,13 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
-  Colour system
-  - Neutrals: Radix-style slate, cool with a hint of blue so they sit with the iris accent (analogous hues).
-  - Elevation by lightness: canvas < surface < overlay. Light mode adds soft shadows; dark mode leans on
-    hairline borders and a faint top highlight, because shadows disappear on dark.
-  - Accent is for values and the one primary action (slider fill, switches, Export, focus). Selection and
-    navigation stay neutral.
+  Colour system — monochrome, the way Linear and Vercel do it
+  - The chrome is greys only. Colour belongs to the work on the devices, so nothing in the UI competes with it.
+  - "Accent" is ink: the primary button, a switch that's on, a slider's fill, the focus ring are all the text colour.
+    Selection and hover are a step of grey, never a hue.
+  - Elevation by lightness: canvas < surface < overlay. Light mode adds one soft shadow to floating things; dark mode
+    leans on hairline borders, because shadows vanish on dark.
+  - Semantic green / amber / red only where a number is good or bad (frame rate, load), always with a word or shape.
   - Every text token passes WCAG AA (4.5:1) on the surfaces it is used on.
 */
 @theme inline {
@@ -27,7 +28,7 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-ink: var(--accent-ink);
   --color-accent-soft: var(--accent-soft);
-  --color-on-accent: #ffffff;
+  --color-on-accent: var(--on-accent);
   --color-good: var(--good);
   --color-good-ink: var(--good-ink);
   --color-warn: var(--warn);
@@ -36,7 +37,7 @@
   --color-bad-ink: var(--bad-ink);
   --color-control-off: var(--control-off);
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", "Cascadia Code", monospace;
 
   /* type scale: one name per job, so sizes stop drifting */
@@ -48,10 +49,10 @@
   --text-body--line-height: 18px;
   --text-ui: 14px;
   --text-ui--line-height: 20px;
-  --text-title: 15px;
+  --text-title: 14px;
   --text-title--line-height: 20px;
-  --text-heading: 18px;
-  --text-heading--line-height: 24px;
+  --text-heading: 16px;
+  --text-heading--line-height: 22px;
 
   --shadow-xs: var(--sh-xs);
   --shadow-sm: var(--sh-sm);
@@ -64,67 +65,69 @@
 
 :root {
   color-scheme: light;
-  --canvas: #f5f5f7;
+  --canvas: #f7f7f8;
   --surface: #ffffff;
-  --surface-2: #f3f3f6;
-  --surface-3: #e8e8ed;
+  --surface-2: #f4f4f5;
+  --surface-3: #ececee;
   --overlay: #ffffff;
-  --line: rgb(0 0 40 / 0.08);
-  --line-strong: rgb(0 0 40 / 0.15);
-  --fg: #1c2024; /* 16:1 on white */
-  --fg-2: #5b5f68; /* 6.4:1 */
-  --fg-3: #70747d; /* 4.7:1 — on surfaces only, not the canvas */
-  --accent: #5b5bd6;
-  --accent-hover: #5151cd;
-  --accent-ink: #5753c6;
-  --accent-soft: rgb(91 91 214 / 0.1);
-  --good: #30a46c;
-  --good-ink: #218358;
-  --warn: #e8a10c;
-  --warn-ink: #9a5b00;
+  --line: rgb(9 9 11 / 0.07);
+  --line-strong: rgb(9 9 11 / 0.13);
+  --fg: #18181b; /* 17.7:1 on white */
+  --fg-2: #52525b; /* 7.7:1 */
+  --fg-3: #6b6b74; /* 5.3:1 on white, 4.8:1 on surface-2 */
+  --accent: #18181b;
+  --accent-hover: #2e2e33;
+  --accent-ink: #18181b;
+  --accent-soft: rgb(9 9 11 / 0.06);
+  --on-accent: #ffffff;
+  --good: #22a356;
+  --good-ink: #15803d;
+  --warn: #e5a00d;
+  --warn-ink: #b45309;
   --bad: #e5484d;
-  --bad-ink: #ce2c31;
-  --control-off: #c6c8d1;
-  --track-off: #e1e1e8;
-  --tip-bg: #1c2024;
-  --tip-fg: #ffffff;
-  --veil: #f5f5f7;
-  --sh-xs: 0 1px 2px rgb(16 20 40 / 0.05);
-  --sh-sm: 0 1px 2px rgb(16 20 40 / 0.08), 0 0 0 0.5px rgb(16 20 40 / 0.06);
-  --sh-md: 0 0 0 1px var(--line), 0 2px 4px -1px rgb(16 20 40 / 0.05), 0 10px 24px -6px rgb(16 20 40 / 0.12);
-  --sh-lg: 0 0 0 1px var(--line), 0 6px 12px -4px rgb(16 20 40 / 0.06), 0 28px 56px -16px rgb(16 20 40 / 0.2);
+  --bad-ink: #dc2626;
+  --control-off: #d4d4d8;
+  --track-off: #e4e4e7;
+  --tip-bg: #18181b;
+  --tip-fg: #fafafa;
+  --veil: #f7f7f8;
+  --sh-xs: 0 1px 1px rgb(9 9 11 / 0.04);
+  --sh-sm: 0 1px 2px rgb(9 9 11 / 0.06), 0 0 0 1px rgb(9 9 11 / 0.06);
+  --sh-md: 0 0 0 1px var(--line), 0 4px 12px -2px rgb(9 9 11 / 0.08), 0 12px 32px -12px rgb(9 9 11 / 0.12);
+  --sh-lg: 0 0 0 1px var(--line), 0 8px 16px -6px rgb(9 9 11 / 0.08), 0 28px 64px -20px rgb(9 9 11 / 0.22);
   /* devices: a tight contact shadow plus one soft ambient layer, nothing muddy */
-  --sh-device: 0 1px 1px rgb(16 20 40 / 0.06), 0 6px 12px -6px rgb(16 20 40 / 0.12), 0 24px 48px -20px rgb(16 20 40 / 0.22);
+  --sh-device: 0 1px 1px rgb(9 9 11 / 0.06), 0 6px 12px -6px rgb(9 9 11 / 0.12), 0 24px 48px -20px rgb(9 9 11 / 0.22);
 }
 .dark {
   color-scheme: dark;
-  --canvas: #111113;
-  --surface: #18191b;
-  --surface-2: #212225;
-  --surface-3: #2b2d31;
-  --overlay: #1d1e21;
+  --canvas: #0a0a0b;
+  --surface: #111113;
+  --surface-2: #19191c;
+  --surface-3: #222226;
+  --overlay: #161618;
   --line: rgb(255 255 255 / 0.07);
-  --line-strong: rgb(255 255 255 / 0.13);
-  --fg: #edeef0;
-  --fg-2: #b0b4ba; /* 8.4:1 on surface */
-  --fg-3: #868a93; /* 5.1:1 */
-  --accent: #5b5bd6;
-  --accent-hover: #6e6ade;
-  --accent-ink: #b1a9ff;
-  --accent-soft: rgb(110 106 222 / 0.2);
+  --line-strong: rgb(255 255 255 / 0.12);
+  --fg: #fafafa;
+  --fg-2: #a1a1aa; /* 7.4:1 on surface */
+  --fg-3: #8b8b94; /* 5.6:1 */
+  --accent: #fafafa;
+  --accent-hover: #e4e4e7;
+  --accent-ink: #fafafa;
+  --accent-soft: rgb(255 255 255 / 0.08);
+  --on-accent: #0a0a0b;
   --good: #30a46c;
-  --good-ink: #3dd68c;
-  --warn: #ffc53d;
-  --warn-ink: #ffca16;
+  --good-ink: #4ade80;
+  --warn: #f5b334;
+  --warn-ink: #fbbf24;
   --bad: #e5484d;
-  --bad-ink: #ff9592;
-  --control-off: #43464d;
-  --track-off: #33353b;
-  --tip-bg: #2e3035;
-  --tip-fg: #edeef0;
-  --veil: #111113;
+  --bad-ink: #f87171;
+  --control-off: #3f3f46;
+  --track-off: #2a2a2f;
+  --tip-bg: #26262b;
+  --tip-fg: #fafafa;
+  --veil: #0a0a0b;
   --sh-xs: 0 0 #0000;
-  --sh-sm: 0 1px 2px rgb(0 0 0 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --sh-sm: 0 0 0 1px rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.5);
   --sh-md: 0 0 0 1px var(--line-strong), 0 12px 32px -8px rgb(0 0 0 / 0.6);
   --sh-lg: 0 0 0 1px var(--line-strong), 0 28px 64px -16px rgb(0 0 0 / 0.7);
   --sh-device: 0 1px 1px rgb(0 0 0 / 0.5), 0 24px 48px -20px rgb(0 0 0 / 0.7);
@@ -148,7 +151,6 @@
     font-family: var(--font-sans);
     font-size: 13px;
     line-height: 18px;
-    font-feature-settings: "cv11", "ss01", "ss03";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-tap-highlight-color: transparent;
@@ -160,7 +162,7 @@
     background: var(--accent-soft);
   }
   :focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--fg);
     outline-offset: 2px;
   }
   .mono {
@@ -215,16 +217,16 @@
     display: none;
   }
 
-  /* ---- slider: accent fill up to --p, white knob ---- */
+  /* ---- slider: ink fill up to --p, white knob ---- */
   .range {
     --track: 4px;
-    --thumb: 16px;
+    --thumb: 14px;
     -webkit-appearance: none;
     appearance: none;
     display: block;
     width: 100%;
     min-width: 0;
-    height: 24px;
+    height: 20px;
     margin: 0;
     background: transparent;
     cursor: pointer;
@@ -247,8 +249,8 @@
     border-radius: 50%;
     background: #fff;
     box-shadow:
-      0 0 0 1px rgb(16 20 40 / 0.14),
-      0 1px 3px rgb(16 20 40 / 0.22);
+      0 0 0 1px rgb(9 9 11 / 0.18),
+      0 1px 3px rgb(9 9 11 / 0.2);
     transition: transform 160ms var(--ease-out);
   }
   .range::-moz-range-track {
@@ -268,8 +270,8 @@
     border-radius: 50%;
     background: #fff;
     box-shadow:
-      0 0 0 1px rgb(16 20 40 / 0.14),
-      0 1px 3px rgb(16 20 40 / 0.22);
+      0 0 0 1px rgb(9 9 11 / 0.18),
+      0 1px 3px rgb(9 9 11 / 0.2);
   }
   .range:active::-webkit-slider-thumb {
     transform: scale(1.1);
@@ -280,12 +282,12 @@
   .range:focus-visible::-webkit-slider-thumb {
     box-shadow:
       0 0 0 2px var(--surface),
-      0 0 0 4px var(--accent);
+      0 0 0 4px var(--fg);
   }
   .range:focus-visible::-moz-range-thumb {
     box-shadow:
       0 0 0 2px var(--surface),
-      0 0 0 4px var(--accent);
+      0 0 0 4px var(--fg);
   }
 
   /* ---- tooltip: delay the first, instant after that, grows from its trigger (Emil) ---- */
@@ -299,8 +301,8 @@
     gap: 8px;
     white-space: nowrap;
     pointer-events: none;
-    border-radius: 8px;
-    padding: 5px 8px;
+    border-radius: 6px;
+    padding: 4px 8px;
     font-size: 12px;
     line-height: 16px;
     font-weight: 500;
@@ -328,6 +330,11 @@
     --tx: 0px;
     transform-origin: top right;
   }
+  .tip-start {
+    left: 0;
+    --tx: 0px;
+    transform-origin: top left;
+  }
   @starting-style {
     .tip {
       opacity: 0;
@@ -343,6 +350,37 @@
     opacity: 0.6;
   }
 
+  /* ---- popover (native [popover]: top layer, light dismiss and Escape for free), placed under its trigger ---- */
+  .pop {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: var(--fg);
+    background: var(--overlay);
+    border-radius: 12px;
+    box-shadow: var(--sh-lg);
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+    transform-origin: var(--origin, top center);
+    transition:
+      opacity 150ms var(--ease-out),
+      transform 150ms var(--ease-out),
+      overlay 150ms allow-discrete,
+      display 150ms allow-discrete;
+  }
+  .pop:popover-open {
+    opacity: 1;
+    transform: none;
+  }
+  @starting-style {
+    .pop:popover-open {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.98);
+    }
+  }
+
   /* ---- dialogs (native <dialog>: focus trap, Escape and inert page for free) ---- */
   dialog {
     padding: 0;
@@ -350,18 +388,18 @@
     color: var(--fg);
   }
   dialog::backdrop {
-    background: rgb(8 10 20 / 0);
+    background: rgb(9 9 11 / 0);
     transition:
       background-color 200ms ease,
       overlay 200ms allow-discrete,
       display 200ms allow-discrete;
   }
   dialog[open]::backdrop {
-    background: rgb(8 10 20 / 0.36);
+    background: rgb(9 9 11 / 0.4);
   }
   @starting-style {
     dialog[open]::backdrop {
-      background: rgb(8 10 20 / 0);
+      background: rgb(9 9 11 / 0);
     }
   }
   /* drawer: in on the iOS drawer curve, out faster */
@@ -390,9 +428,9 @@
   }
   dialog.modal {
     margin: auto;
-    width: min(460px, calc(100vw - 32px));
+    width: min(440px, calc(100vw - 32px));
     max-height: min(640px, calc(100dvh - 32px));
-    border-radius: 16px;
+    border-radius: 14px;
     background: var(--overlay);
     box-shadow: var(--sh-lg);
     opacity: 0;
@@ -415,7 +453,7 @@
     }
   }
 
-  /* ---- phone bottom sheet (non-modal: the tab bar under it stays live) ---- */
+  /* ---- phone bottom sheet (non-modal: the stage under it stays live) ---- */
   .sheet {
     transform: translateY(100%);
     visibility: hidden;
@@ -445,6 +483,7 @@
     .press:active,
     .range::-webkit-slider-thumb,
     .tip,
+    .pop,
     dialog,
     dialog::backdrop,
     .sheet,

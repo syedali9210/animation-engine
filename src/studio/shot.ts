@@ -2,7 +2,7 @@
 // move a video makes. The engine keeps it between visits.
 import type { DeviceId } from "../devices"
 import { BACKDROPS, SIZES } from "./config"
-import { FINISHES } from "./devices3d"
+import { FINISHES } from "./finishes"
 import { angle, type AngleId, type MotionId, type Pose } from "./poses"
 
 export type Shot = {
@@ -23,9 +23,26 @@ export type Shot = {
   reflections: number
   size: string
   fps: 30 | 60
+  /** what Export makes */
+  kind: "png" | "video"
 }
 
-export const DEFAULT_SHOT: Shot = { finish: {}, angle: "hero", yaw: 0, elev: 0, zoom: 1, fov: null, motion: "reveal", duration: 6, backdrop: "studio", shadow: true, reflections: 1, size: "16x9", fps: 30 }
+export const DEFAULT_SHOT: Shot = {
+  finish: {},
+  angle: "hero",
+  yaw: 0,
+  elev: 0,
+  zoom: 1,
+  fov: null,
+  motion: "reveal",
+  duration: 6,
+  backdrop: "studio",
+  shadow: true,
+  reflections: 1,
+  size: "16x9",
+  fps: 30,
+  kind: "video",
+}
 
 export function shotPose(s: Shot, device: DeviceId): Pose {
   const p = angle(s.angle, device)

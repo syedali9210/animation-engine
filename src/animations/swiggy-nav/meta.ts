@@ -5,6 +5,7 @@ import { params } from "./params"
 export default {
   ...swiggy,
   name: "Bottom Nav",
+  poster: { at: 1200, y: 1 },
   tech: ["React", "CSS transitions"],
   blurb: "Food / Bolt / 99 store / EatRight / Reorder, docked above the home indicator; it slides away while you scroll the feed.",
   behavior: { trigger: "interaction", frequency: "frequent" },

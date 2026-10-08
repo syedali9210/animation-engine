@@ -1,11 +1,12 @@
 # Animation Engine
 
-Every animation from your Desktop projects in one place — tune it live, watch it inside exact iPhone / iPad / MacBook frames, see what it costs each device's GPU, get Emil Kowalski–style suggestions, and export the tuned code.
+Every animation from your Desktop projects in one place — tune it live, watch it inside exact iPhone / iPad / MacBook frames, turn it into a 3D product mockup (still or video) for a portfolio or a post, see what it costs each device's GPU, and export the tuned code.
 
 ```bash
 npm install
 npm run dev      # open the printed URL
 npm run check    # suggestion-rule + GPU-math self-check
+npm run posters  # with the dev server up: re-shoot the library cards' stills (public/thumbs)
 npm run build
 ```
 
@@ -26,28 +27,34 @@ npm run build
 
 - **Devices** — iPhone 16 Pro (402×874 @3x, 62pt corners, Dynamic Island), iPhone Duo, iPad Pro 11″ M4 (834×1210 @2x, landscape camera), MacBook Pro 14″ (1512×982, notch + menu bar). Each animation runs in a real iframe at the device's viewport, so CSS breakpoints behave exactly as on the device; the caption shows which Tailwind breakpoint is active. Rotate for landscape, or **Compare** to see all three at true relative size.
 - **iPhone Duo** — Apple's book-style foldable, modelled in 3D: two 5.2 mm titanium slabs (Star White / Night Sky, mirror-polished edges) on a hinge. Folded it's the 5.4″ cover screen (466×678 @3x); open it's the 7.6″ inner screen (951×669 — App Store Connect's size for the 1878×2670 panel); half open the app keeps to the right half, away from the crease (465×669), as a book standing on its edges, or rotated, as a stand with the base on the table (669×465). Status follows iOS 27 on the Duo: one circle in the top-right corner (battery ring, signal dots, Wi-Fi in the middle) with the time under it and the punch-hole camera below. Folding follows Apple's layout, where the open screen's right half matches the cover: opening, the cover turns off, the left half swings away to reveal the app already on the right half, and the app then widens across the whole screen; closing, the app narrows onto the right half, the left half swings over it and the magnets snap it shut, and the app is on the cover in the same place. The animation never reloads — it genuinely resizes, so you see it reflow. `F` folds and unfolds.
-- **Screen builder** — switch the stage to *Screen*, then drag animations out of the library (a live preview follows the pointer and a dashed box shows where it will land) or click one to drop it in. Move and resize them on the device, hide or reorder them in the Layers list, tune each one separately, and put an image or video behind them (drop the file on the page). Positions are fractions of the screen, so a layout survives rotation, folding and other devices. Everything on the screen runs together, and Performance shows the screen's cost plus a per-layer breakdown. A full app screen makes a real base: drop a sheet, a toast or one of the Swiggy components over the Swiggy Home Screen and the stand-in skeleton (or the component's own backdrop) steps aside.
+- **Screen builder** — open *Screen builder* at the top of the library, then drag animations out of the library (a live preview follows the pointer and a dashed box shows where it will land) or press **+** on a card to drop it in. Move and resize them on the device, hide or reorder them in the Layers list, tune each one separately, and put an image or video behind them (drop the file on the page). Positions are fractions of the screen, so a layout survives rotation, folding and other devices. Everything on the screen runs together, and the performance chip shows the screen's cost plus a per-layer breakdown. A full app screen makes a real base: drop a sheet, a toast or one of the Swiggy components over the Swiggy Home Screen and the stand-in skeleton (or the component's own backdrop) steps aside.
 - **Reduced motion** emulates `prefers-reduced-motion` inside the frame (media queries, `matchMedia`, Motion).
 - **Native DPR** makes canvases render at the device's pixel ratio, so fill-rate cost is the device's.
 - **Theme** switches the engine and the animations between dark and light, live: the animation inside every device re-themes without reloading. It follows the system until you pick one.
 
+## Mockups
+
+Switch the stage from **Preview** to **Mockup** and the device becomes a real 3D object under studio light, with the live animation on its glass (iPhone 16 Pro, iPhone Duo folded / half open / open, iPad Pro 11″, MacBook Pro 14″, each in Apple's finishes). Pick an angle or drag the device to turn it (scroll zooms, double-click resets), choose a background (studio sweeps, dark graphite and onyx, soft colour fields, or transparent), and a move for video: Reveal, Spin in (from the back round to the screen), Orbit, Sway, Push in, Rise or Tour (three angles in one take). The transport under the stage plays or scrubs the move.
+
+**Export** renders the exact shot in headless Chrome on the dev server: a PNG (a transparent background gives alpha), or a video stepped frame by frame so nothing drops (H.264 MP4, or ProRes 4444 with alpha over a transparent background) at 16:9 (1080p or 4K), 4:3, 1:1, 4:5 or 9:16, 30 or 60 fps. Needs Chrome or Edge, and ffmpeg for video (`STUDIO_CHROME` / `STUDIO_FFMPEG` point at them if they aren't found).
+
 ## The app
 
-- **Desktop / laptop** — library · stage · inspector, each column with its own header. Below 1280px the library becomes a drawer.
-- **Phones** — the preview keeps most of the screen. Properties are edited one at a time in an adjust bar (control on top, a scrolling row of property chips underneath); the full list, Performance, Audit and Code open as a swipe-to-dismiss sheet from the tab bar. Landscape phones get the side-panel layout.
+- **Desktop / laptop** — library · stage · inspector. The library is a grid of cards with a still of each animation (hover one to play it live); the stage has a floating dock for device, rotation, reduced motion, replay and the frame rate; the inspector shows only the properties. Performance and checks open from the frame-rate chip, code export from **Export**. Below 1280px the library becomes a drawer.
+- **Phones** — the preview keeps most of the screen. Properties are edited one at a time in an adjust bar (control on top, a scrolling row of property chips underneath); the full list opens as a swipe-to-dismiss sheet, and the **⋯** menu has the screen builder, performance, code and theme. Landscape phones get the side-panel layout.
 - **Links** — `/#bottom-sheet` opens straight to an animation.
-- **Keyboard** — `/` or `Ctrl/⌘ K` search, `[` `]` previous / next, `1`–`5` devices, `F` fold, `L` rotate, `R` replay, `M` reduced motion, `T` theme, `?` all shortcuts; in the screen builder the arrow keys nudge the picked layer and `Delete` removes it. Single-key shortcuts can be turned off in that dialog.
-- **Accessibility** — every text colour passes WCAG AA in both themes; tabs and segmented controls are real tablists / radio groups with arrow-key navigation; dialogs are native `<dialog>`; tooltips also show on keyboard focus; the UI respects reduced motion.
+- **Keyboard** — `/` or `Ctrl/⌘ K` search, `[` `]` previous / next, `1`–`5` devices, `P` preview / mockup, `F` fold, `L` rotate, `R` replay, `M` reduced motion, `T` theme, `?` all shortcuts; in the screen builder the arrow keys nudge the picked layer and `Delete` removes it. Single-key shortcuts can be turned off in that dialog.
+- **Accessibility** — every text colour passes WCAG AA in both themes; segmented controls are real radio groups with arrow-key navigation; dialogs are native `<dialog>` and menus native popovers (Escape and click-away close them); tooltips also show on keyboard focus; the UI respects reduced motion.
 
 ## GPU & perf
 
 Measured in the frame: frame pacing, main-thread work per frame (script + style + layout + paint), GPU time (WebGL2 timer queries, WebGPU work-done), canvas fill and which CSS properties change every frame (compositor / repaint / layout). On localhost each device frame runs on its own site (`iphone.localhost`, …) so Chrome gives it its own process and the numbers don't bleed into each other.
 
-The device GPU load is an **estimate**: host GPU time × (this computer's GPU class ÷ the device chip's throughput), against the device's 120Hz budget (8.3ms). The computer's class is auto-detected and can be corrected in the Performance tab.
+The device GPU load is an **estimate**: host GPU time × (this computer's GPU class ÷ the device chip's throughput), against the device's 120Hz budget (8.3ms). The computer's class is auto-detected and can be corrected from the frame-rate chip.
 
 ## Adding an animation
 
-The library is whatever is in `src/animations/` — one folder per animation, found automatically.
+The library is whatever is in `src/animations/` — one folder per animation, found automatically. Run `npm run posters <id>` for its card still; `poster: { at, y }` in its meta picks the moment and where the 4:3 crop sits on the screen.
 
 - **React:** `src/animations/<id>/meta.ts` (name, category, behaviour, schema), `params.ts` (the tunable values), `index.tsx` (default export takes `p`). Export rewrites `params.ts` with the tuned values.
 - **App screens** (a whole screen): `layout: "fill"`, scroll your own container rather than the window, and leave the top 62px and bottom 34px for the device's status bar and home indicator. Call `window.engine?.report("status", { top: "light" | "dark", bottom: "light" | "dark" })` whenever what's under them changes, and the device draws light or dark system ink to match (as `UIStatusBarStyle` does on iOS).

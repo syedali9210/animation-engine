@@ -3,6 +3,7 @@ import { params } from "./params";
 
 export default {
   name: "Popover Menu",
+  poster: { at: 3000, y: 0.78 },
   category: "UI Patterns",
   tech: ["React", "CSS transitions", "Skeleton"],
   blurb: "Dropdown that grows out of its trigger, and becomes an action sheet on phones.",

@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json && vite build",
     "preview": "vite preview",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "posters": "node scripts/posters.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

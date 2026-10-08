@@ -5,6 +5,7 @@ import { params } from "./params"
 export default {
   ...swiggy,
   name: "Search Bar",
+  poster: { at: 1200, y: 0.53 },
   tech: ["React", "CSS transitions"],
   blurb: "Search with a suggestion that rises into place (Pizza, Biryani, Cake, Dosa), voice search, and the VEG switch.",
   behavior: { trigger: "ambient", frequency: "frequent" },

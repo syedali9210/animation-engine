@@ -3,6 +3,7 @@ import { params } from "./params";
 
 export default {
   name: "Chat Quiz",
+  poster: { at: 2600, y: 0.45 },
   category: "Chat & AI",
   tech: ["React", "Motion", "Canvas 2D", "Springs", "Layout animation"],
   blurb: "An AI composer that interviews you before it helps — card-to-pill morph over a spring-lattice dither field.",

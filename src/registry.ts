@@ -66,6 +66,9 @@ export interface AnimMeta {
   includes?: string[];
   /** Files from /public bundled into the export. */
   assets?: string[];
+  /** The library card's still (npm run posters): `at` ms into the animation (default 1800), cropped around `y`, a
+      fraction of the screen's height (default: the top for a full-screen app, else the middle). */
+  poster?: { at?: number; y?: number };
 }
 
 const found = import.meta.glob<{ default: Omit<AnimMeta, "id"> }>("./animations/*/meta.ts", { eager: true });

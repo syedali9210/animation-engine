@@ -3,6 +3,7 @@ import { params } from "./params";
 
 export default {
   name: "vgpu Detail Maps",
+  poster: { at: 3000 },
   category: "Shaders & GPU",
   tech: ["WebGPU", "WGSL", "vgpu", "Procedural"],
   blurb: "The WGSL that bakes the coins' scratches, grime, fingerprints and the notes' paper fibre — running live on WebGPU.",

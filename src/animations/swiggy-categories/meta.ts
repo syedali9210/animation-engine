@@ -5,6 +5,7 @@ import { params } from "./params"
 export default {
   ...swiggy,
   name: "Category Tabs",
+  poster: { at: 1200, y: 0.5 },
   tech: ["React", "clip-path", "CSS transitions"],
   blurb: "ALL / STORE / OFFERS / BOLT / EATRIGHT, all fitting the width: dark on the hero, light in the sticky header, with an underline that slides to the chosen tab.",
   behavior: { trigger: "interaction", frequency: "frequent" },

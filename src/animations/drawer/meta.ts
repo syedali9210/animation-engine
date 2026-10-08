@@ -3,6 +3,7 @@ import { params } from "./params";
 
 export default {
   name: "Side Drawer",
+  poster: { at: 4000, y: 0.25 },
   category: "UI Patterns",
   tech: ["React", "CSS transitions", "Skeleton"],
   blurb: "Navigation drawer on the iOS drawer curve — 85% wide on phones, fixed width on tablets and laptops.",

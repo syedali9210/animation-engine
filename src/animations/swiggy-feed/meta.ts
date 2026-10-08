@@ -5,6 +5,7 @@ import { params } from "./params"
 export default {
   ...swiggy,
   name: "Restaurant Feed",
+  poster: { at: 1200, y: 0.5 },
   tech: ["React", "Web Animations", "CSS transitions"],
   blurb: "The restaurant feed: its heading, the filter chips and a restaurant card with offer, delivery time and a heart that pops when saved.",
   behavior: { trigger: "interaction", frequency: "frequent" },

@@ -8,30 +8,7 @@ import * as THREE from "three"
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js"
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js"
 import { DUO, LAPTOP, PHONE_BUTTONS, TABLET_BUTTONS, type DeviceId, type Posture } from "../devices"
-
-export type Finish = { id: string; name: string; metal: string; back: string; rough: number }
-
-/** Apple's own finish names. Metal is the band (or the aluminium); back is the glass or anodising behind. */
-export const FINISHES: Record<DeviceId, Finish[]> = {
-  iphone: [
-    { id: "black", name: "Black Titanium", metal: "#4a4a4d", back: "#29292b", rough: 0.34 },
-    { id: "natural", name: "Natural Titanium", metal: "#c3beb5", back: "#b8b2a8", rough: 0.34 },
-    { id: "white", name: "White Titanium", metal: "#e2e0db", back: "#e9e8e4", rough: 0.34 },
-    { id: "desert", name: "Desert Titanium", metal: "#c6aa8e", back: "#c4ae97", rough: 0.34 },
-  ],
-  duo: [
-    { id: "night", name: "Night Sky", metal: "#3a4256", back: "#1b2130", rough: 0.12 },
-    { id: "star", name: "Star White", metal: "#e6e1d8", back: "#e9e5de", rough: 0.12 },
-  ],
-  ipad: [
-    { id: "black", name: "Space Black", metal: "#3b3b3e", back: "#3b3b3e", rough: 0.44 },
-    { id: "silver", name: "Silver", metal: "#d3d5d8", back: "#d3d5d8", rough: 0.44 },
-  ],
-  macbook: [
-    { id: "black", name: "Space Black", metal: "#35353a", back: "#35353a", rough: 0.44 },
-    { id: "silver", name: "Silver", metal: "#d5d7da", back: "#d5d7da", rough: 0.44 },
-  ],
-}
+import type { Finish } from "./finishes"
 
 export type Built = {
   /** the whole device; the scene poses it */
@@ -148,14 +125,25 @@ export const SCREEN_SPECULAR = 0.28
 export const sheenMaterial = () => new THREE.MeshPhysicalMaterial({ color: 0x000000, metalness: 0, roughness: 0.05, ior: 1.52, specularIntensity: SCREEN_SPECULAR, ...additive, ...bias(3) })
 
 function materials(f: Finish) {
+  const aluminium = f.back === f.metal
   return {
     metal: new THREE.MeshPhysicalMaterial({ color: f.metal, metalness: 1, roughness: f.rough }),
-    // satin glass on the back, anodised aluminium where there's no glass
-    back: new THREE.MeshPhysicalMaterial({ color: f.back, metalness: f.back === f.metal ? 1 : 0.15, roughness: f.back === f.metal ? f.rough : 0.55, clearcoat: f.back === f.metal ? 0 : 0.35, clearcoatRoughness: 0.5 }),
+    // textured matte glass on the back, anodised aluminium where there's no glass
+    back: aluminium
+      ? new THREE.MeshPhysicalMaterial({ color: f.back, metalness: 1, roughness: f.rough })
+      : new THREE.MeshPhysicalMaterial({ color: f.back, metalness: 0, roughness: 0.48, specularIntensity: 0.7, clearcoat: 0.3, clearcoatRoughness: 0.5 }),
+    // the camera plateau: the same glass, polished
+    gloss: new THREE.MeshPhysicalMaterial({ color: f.back, metalness: 0, roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.03 }),
+    // camera bezels: polished metal in the band's colour
+    ring: new THREE.MeshPhysicalMaterial({ color: f.metal, metalness: 1, roughness: 0.12, side: THREE.DoubleSide }),
+    flash: new THREE.MeshPhysicalMaterial({ color: 0xece4d2, roughness: 0.42, clearcoat: 1, clearcoatRoughness: 0.08, ...bias(5) }),
     glass: new THREE.MeshPhysicalMaterial({ color: 0x030304, metalness: 0, roughness: 0.06, ior: 1.52, clearcoat: 1, clearcoatRoughness: 0.05 }),
     // the island, the notch, camera holes: black glass that doesn't catch the room
     black: new THREE.MeshPhysicalMaterial({ color: 0x000000, metalness: 0, roughness: 0.42, clearcoat: 0.25, clearcoatRoughness: 0.4, ...bias(4) }),
-    lens: new THREE.MeshPhysicalMaterial({ color: 0x07080c, metalness: 0.2, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.02, iridescence: 0.35, iridescenceIOR: 1.6, ...bias(5) }),
+    // coated lens glass: near black, with the blue-violet bloom of its anti-reflective layers
+    // (anti-reflective: a quarter of bare glass's reflection, or a softbox fills the whole disc and it reads as a cap)
+    lens: new THREE.MeshPhysicalMaterial({ color: 0x050609, metalness: 0, roughness: 0.08, specularIntensity: 0.3, clearcoat: 0.35, clearcoatRoughness: 0.04, iridescence: 0.22, iridescenceIOR: 1.6, iridescenceThicknessRange: [300, 600], ...bias(5) }),
+    lensCore: new THREE.MeshPhysicalMaterial({ color: 0x060914, metalness: 0, roughness: 0.05, specularIntensity: 0.3, clearcoat: 0.5, clearcoatRoughness: 0.02, iridescence: 0.3, iridescenceIOR: 1.7, iridescenceThicknessRange: [320, 640], ...bias(6) }),
     // antenna bands: the plastic breaks in the titanium, a shade apart from it
     seam: new THREE.MeshPhysicalMaterial({ color: new THREE.Color(f.metal).multiplyScalar(0.72), metalness: 0, roughness: 0.6 }),
     hole: hole(),
@@ -185,6 +173,31 @@ function button(parent: THREE.Object3D, mat: THREE.Material, along: "x" | "y", l
   return add(parent, g, mat, x, y, 0)
 }
 
+/** A camera on a device's back (which faces -z), centred at (x, y) on a surface at depth z: a polished bezel ring
+    standing `h` off it (a lathed profile, so its rounded lip catches the light), the coated glass a step inside the
+    lip, and the lens element under the glass. */
+function camera(parent: THREE.Object3D, m: Mats, x: number, y: number, z: number, r: number, h: number) {
+  const lip = r * 0.82
+  const profile = [
+    [lip, h * 0.84],
+    [lip + r * 0.03, h * 0.96],
+    [r * 0.96, h],
+    [r, h * 0.86],
+    [r * 1.005, 0],
+  ].map(([a, b]) => new THREE.Vector2(a, b))
+  const bezel = add(parent, new THREE.LatheGeometry(profile, 72), m.ring, x, y, z)
+  bezel.rotation.x = -Math.PI / 2 // its axis along -z, out of the back
+  const glass = add(parent, new THREE.CircleGeometry(lip, 72), m.lens, x, y, z - h * 0.84)
+  glass.rotation.y = Math.PI
+  const core = add(parent, new THREE.CircleGeometry(lip * 0.42, 48), m.lensCore, x, y, z - h * 0.84 - 0.05)
+  core.rotation.y = Math.PI
+}
+
+/** A flush round part on the back (flash, LiDAR, microphone). */
+function dot(parent: THREE.Object3D, mat: THREE.Material, x: number, y: number, z: number, r: number) {
+  add(parent, new THREE.CircleGeometry(r, 40), mat, x, y, z).rotation.y = Math.PI
+}
+
 /* ---------------- iPhone 16 Pro ---------------- */
 
 const IPHONE = { W: 431.6, H: 903.1, D: 49.8, R: 76.8, e: 7, screen: { w: 402, h: 874, r: 62 } }
@@ -201,18 +214,19 @@ function iphone(m: Mats, landscape: boolean): Built {
   add(body, flat(126, 37, 18.5), m.black, 0, screen.h / 2 - 11 - 18.5, D / 2 + 0.16)
   // back glass and the camera plateau (top right seen from the front: top left from behind)
   add(body, flat(cap.w, cap.h, cap.r), m.back, 0, 0, -D / 2 - 0.02).rotation.y = Math.PI
-  const plateau = { s: 212, x: W / 2 - 14 - 106, y: H / 2 - 14 - 106 }
-  add(body, slab(plateau.s, plateau.s, 12, 56, 4), m.back, plateau.x, plateau.y, -D / 2 - 4)
+  const plateau = { s: 214, x: W / 2 - 13 - 107, y: H / 2 - 13 - 107, h: 7 }
+  add(body, slab(plateau.s, plateau.s, plateau.h * 2, 58, 3), m.gloss, plateau.x, plateau.y, -D / 2)
+  const face = -D / 2 - plateau.h
+  // two cameras down the outer column, the telephoto between them on the inner one (seen from behind: left, right)
   for (const [lx, ly] of [
-    [plateau.x + 50, plateau.y + 50],
-    [plateau.x + 50, plateau.y - 50],
-    [plateau.x - 52, plateau.y],
-  ]) {
-    const ring = add(body, new THREE.CylinderGeometry(40, 40, 10, 48), m.metal, lx, ly, -D / 2 - 14)
-    ring.rotation.x = Math.PI / 2
-    const lens = add(body, new THREE.CircleGeometry(33, 48), m.lens, lx, ly, -D / 2 - 19.1)
-    lens.rotation.y = Math.PI
-  }
+    [52, 52],
+    [52, -52],
+    [-50, 0],
+  ])
+    camera(body, m, plateau.x + lx, plateau.y + ly, face, 46, 9)
+  dot(body, m.flash, plateau.x - 52, plateau.y + 64, face - 0.1, 12)
+  dot(body, m.black, plateau.x - 52, plateau.y - 64, face - 0.1, 10)
+  dot(body, m.black, plateau.x - 6, plateau.y + 84, face - 0.1, 2.6)
   // Action button, volume, side button, Camera Control (sapphire, flush)
   for (const b of PHONE_BUTTONS) {
     const x = (b.side === "left" ? -1 : 1) * (W / 2 + 0.6)
@@ -250,8 +264,12 @@ function ipad(m: Mats, landscape: boolean): Built {
     if (b.side === "top") button(body, m.metal, "x", b.len, -W / 2 + b.at + b.len / 2, H / 2 + 0.5, 9, 2.4)
     else button(body, m.metal, "y", b.len, W / 2 + 0.5, H / 2 - b.at - b.len / 2, 9, 2.4)
   }
-  // the camera bump behind, top left seen from the back
-  add(body, slab(112, 180, 8, 40, 3), m.back, W / 2 - 30 - 56, H / 2 - 30 - 90, -D / 2 - 2)
+  // the camera bump behind, top left seen from the back: the wide camera, LiDAR under it, the flash beside
+  const bump = { x: W / 2 - 30 - 56, y: H / 2 - 30 - 90 }
+  add(body, slab(112, 180, 8, 40, 3), m.back, bump.x, bump.y, -D / 2 - 2)
+  camera(body, m, bump.x, bump.y + 40, -D / 2 - 6, 34, 6)
+  dot(body, m.black, bump.x + 6, bump.y - 44, -D / 2 - 6.1, 14)
+  dot(body, m.flash, bump.x - 30, bump.y - 44, -D / 2 - 6.1, 8)
   const anchor = new THREE.Object3D()
   anchor.position.set(0, 0, D / 2 + 0.08)
   body.add(anchor)
@@ -352,8 +370,8 @@ function macbook(m: Mats): Built {
     const s = add(root, flat(64, kb.depth + 4, 10), new THREE.MeshPhysicalMaterial({ color: 0x0a0a0b, roughness: 0.9, transparent: true, alphaMap: holes, depthWrite: false }), sx * (kb.width / 2 + 62), top + 0.02, kbZ + kb.depth / 2)
     s.rotation.x = -Math.PI / 2
   }
-  // the trackpad: glass in the base's own colour
-  const pad = add(root, flat(752, 460, 26), new THREE.MeshPhysicalMaterial({ color: new THREE.Color(m.metal.color).multiplyScalar(0.96), metalness: 0.35, roughness: 0.3, clearcoat: 0.5, clearcoatRoughness: 0.35 }), 0, top + 0.02, depth / 2 - 34 - 230)
+  // the trackpad: glass in the base's own colour, a shade smoother than the blasted aluminium around it
+  const pad = add(root, flat(752, 460, 26), new THREE.MeshPhysicalMaterial({ color: new THREE.Color(m.metal.color).multiplyScalar(0.97), metalness: 1, roughness: 0.22, clearcoat: 0.4, clearcoatRoughness: 0.2 }), 0, top + 0.02, depth / 2 - 34 - 230)
   pad.rotation.x = -Math.PI / 2
   // hinge, then the lid on it
   const pivot = new THREE.Group()

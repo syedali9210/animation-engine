@@ -5,6 +5,7 @@ import { params } from "./params"
 export default {
   ...swiggy,
   name: "Section Selector",
+  poster: { at: 1200, y: 0.5 },
   tech: ["React", "SVG", "CSS transitions"],
   blurb: "Food / Instamart / Dineout / Scenes as folder tabs on the hero; the chosen tab flares into the panel below on both sides and slides to a new section.",
   behavior: { trigger: "interaction", frequency: "frequent" },

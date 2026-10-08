@@ -15,8 +15,9 @@ export const EASINGS: [string, string][] = [
   ["Ease in", "cubic-bezier(0.42, 0, 1, 1)"],
 ];
 
+/** A hairline box that firms up on hover and takes an ink ring on focus. */
 export const field =
-  "rounded-lg bg-surface-2 text-fg outline-none transition-colors hover:bg-surface-3 focus-visible:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  "rounded-md bg-surface text-fg outline-none shadow-[inset_0_0_0_1px_var(--line-strong)] transition-shadow duration-100 hover:shadow-[inset_0_0_0_1px_var(--fg-3)] focus-visible:shadow-[inset_0_0_0_1px_var(--fg),0_0_0_3px_var(--accent-soft)] dark:bg-surface-2";
 
 export function groupSchema(a: AnimMeta) {
   const groups = new Map<string, [string, ParamSpec][]>();
@@ -45,7 +46,7 @@ function NumberInput({ id, s, value, set, big }: { id: string; s: Num; value: nu
     setDraft(null);
   };
   return (
-    <span className={`relative flex shrink-0 items-center ${big ? "w-[104px]" : "w-[88px]"}`}>
+    <span className={`relative flex shrink-0 items-center ${big ? "w-[104px]" : "w-[76px]"}`}>
       <input
         id={id}
         inputMode="decimal"
@@ -67,10 +68,10 @@ function NumberInput({ id, s, value, set, big }: { id: string; s: Num; value: nu
           }
         }}
         style={{ paddingRight: s.unit ? 14 + s.unit.length * 7 : 10 }}
-        className={`${field} w-full text-right tabular-nums ${big ? "h-10 pl-3 text-[16px]" : "h-8 pl-2 text-body"}`}
+        className={`${field} w-full text-right tabular-nums ${big ? "h-10 pl-3 text-[16px]" : "h-7 pl-2 text-body"}`}
       />
       {s.unit && (
-        <span aria-hidden className="pointer-events-none absolute right-2.5 text-caption text-fg-2">
+        <span aria-hidden className="pointer-events-none absolute right-2 text-caption text-fg-3">
           {s.unit}
         </span>
       )}
@@ -114,7 +115,7 @@ function ColorInput({ id, value, def, set, label, big }: { id: string; value: st
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       <span
-        className={`relative shrink-0 overflow-hidden rounded-lg shadow-[inset_0_0_0_1px_var(--line-strong)] focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent ${big ? "h-10 w-10" : "h-8 w-8"}`}
+        className={`relative shrink-0 overflow-hidden rounded-md shadow-[inset_0_0_0_1px_var(--line-strong)] focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-fg ${big ? "h-10 w-10" : "h-7 w-7"}`}
         style={{ background: auto ? AUTO_SWATCH : value }}
       >
         <input type="color" aria-label={`${label}: pick a colour`} value={auto ? "#808080" : value} onChange={(e) => set(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
@@ -128,7 +129,7 @@ function ColorInput({ id, value, def, set, label, big }: { id: string; value: st
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-        className={`${field} mono min-w-0 uppercase placeholder:font-sans placeholder:normal-case placeholder:text-fg-2 ${big ? "h-10 w-[112px] px-3 text-[16px]" : "h-8 w-[88px] px-2.5 text-body"}`}
+        className={`${field} mono min-w-0 uppercase placeholder:font-sans placeholder:normal-case placeholder:text-fg-3 ${big ? "h-10 w-[112px] px-3 text-[16px]" : "h-7 w-[84px] px-2 text-caption"}`}
       />
       {def === "" && !auto && (
         <IconButton label="Back to auto (follows theme)" size={big ? "lg" : "sm"} onClick={() => set("")}>
@@ -144,12 +145,12 @@ function SelectInput({ id, s, value, set, big, labelledBy }: { id: string; s: Se
     return <Segmented size={big ? "lg" : "sm"} full={big} labelledBy={labelledBy} value={value} onChange={set} options={s.options.map((o) => ({ value: o, label: o }))} />;
   return (
     <span className="relative min-w-0 flex-1">
-      <select id={id} value={value} onChange={(e) => set(e.target.value)} className={`${field} w-full cursor-pointer appearance-none truncate pl-2.5 pr-8 ${big ? "h-10 text-[16px]" : "h-8 text-body"}`}>
+      <select id={id} value={value} onChange={(e) => set(e.target.value)} className={`${field} w-full cursor-pointer appearance-none truncate pl-2.5 pr-7 ${big ? "h-10 text-[16px]" : "h-7 text-body"}`}>
         {s.options.map((o) => (
           <option key={o}>{o}</option>
         ))}
       </select>
-      <CaretUpDown size={14} aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-2" />
+      <CaretUpDown size={12} aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-fg-3" />
     </span>
   );
 }
@@ -159,7 +160,7 @@ export function Curve({ value, size = 24, className = "" }: { value: string; siz
   return (
     <svg viewBox="-6 -10 52 60" width={size} height={size} aria-hidden className={`shrink-0 ${className}`}>
       <path d="M0 40 L40 0" stroke="var(--line-strong)" strokeWidth="2" fill="none" />
-      <path d={`M0 40 C${x1 * 40} ${40 - y1 * 40} ${x2 * 40} ${40 - y2 * 40} 40 0`} stroke="var(--accent)" strokeWidth="3.5" strokeLinecap="round" fill="none" />
+      <path d={`M0 40 C${x1 * 40} ${40 - y1 * 40} ${x2 * 40} ${40 - y2 * 40} 40 0`} stroke="var(--fg)" strokeWidth="3.5" strokeLinecap="round" fill="none" />
     </svg>
   );
 }
@@ -168,20 +169,20 @@ function EasingInput({ id, value, set, big }: { id: string; value: string; set: 
   const preset = EASINGS.find(([, v]) => v === value)?.[0] ?? "Custom";
   return (
     <span className="flex min-w-0 flex-1 items-center gap-2">
-      <Curve value={value} size={big ? 32 : 26} />
+      <Curve value={value} size={big ? 32 : 22} />
       <span className="relative min-w-0 flex-1">
         <select
           id={id}
           value={preset}
           onChange={(e) => e.target.value !== "Custom" && set(EASINGS.find(([n]) => n === e.target.value)![1])}
-          className={`${field} w-full cursor-pointer appearance-none truncate pl-2.5 pr-8 ${big ? "h-10 text-[16px]" : "h-8 text-body"}`}
+          className={`${field} w-full cursor-pointer appearance-none truncate pl-2.5 pr-7 ${big ? "h-10 text-[16px]" : "h-7 text-body"}`}
         >
           {EASINGS.map(([n]) => (
             <option key={n}>{n}</option>
           ))}
           <option>Custom</option>
         </select>
-        <CaretUpDown size={14} aria-hidden className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-fg-2" />
+        <CaretUpDown size={12} aria-hidden className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-fg-3" />
       </span>
     </span>
   );
@@ -208,7 +209,7 @@ function CustomCurve({ id, value, set, big }: { id: string; value: string; set: 
           setDraft(null);
         }}
         onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-        className={`${field} mono w-full pr-2.5 text-right ${big ? "h-10 pl-32 text-[15px]" : "h-8 pl-24 text-caption"}`}
+        className={`${field} mono w-full pr-2.5 text-right ${big ? "h-10 pl-32 text-[15px]" : "h-7 pl-24 text-caption"}`}
       />
     </span>
   );
@@ -247,7 +248,7 @@ function Control({ k, s, value, set, def, big, id }: RowProps & { id: string }) 
   if (s.type === "boolean") return <Switch id={id} on={!!value} onChange={set} labelledBy={lab} size={big ? "lg" : "md"} />;
   if (s.type === "select") return <SelectInput id={id} s={s} value={String(value)} set={set} big={big} labelledBy={lab} />;
   if (s.type === "text")
-    return <input id={id} value={String(value)} onChange={(e) => set(e.target.value)} className={`${field} w-full min-w-0 px-2.5 ${big ? "h-10 text-[16px]" : "h-8 text-body"}`} />;
+    return <input id={id} value={String(value)} onChange={(e) => set(e.target.value)} className={`${field} w-full min-w-0 px-2.5 ${big ? "h-10 text-[16px]" : "h-7 text-body"}`} />;
   return <EasingInput id={id} value={String(value)} set={set} big={big} />;
 }
 
@@ -259,11 +260,12 @@ export function ParamRow(p: RowProps) {
   const custom = s.type === "easing" && !EASINGS.some(([, v]) => v === value);
   const width = s.type === "text" ? "w-[56%]" : s.type === "easing" || (s.type === "select" && s.options.join("").length > 18) ? "w-[52%]" : "";
   return (
-    <div className={big ? "py-2" : "py-1.5"}>
+    <div className={big ? "py-2" : "py-1"}>
       <div className={`flex items-center gap-3 ${big ? "min-h-10" : "min-h-8"}`}>
         <div className="flex min-w-0 flex-1 items-center gap-0.5">
-          <label id={`${id}-label`} htmlFor={id} className={`min-w-0 ${big ? "text-ui" : "text-body"} ${changed ? "font-medium text-fg" : "text-fg-2"}`}>
+          <label id={`${id}-label`} htmlFor={id} title={s.hint} className={`min-w-0 ${big ? "text-ui" : "text-body"} ${changed ? "font-medium text-fg" : "text-fg-2"}`}>
             {s.label}
+            {s.hint && <span className="sr-only">. {s.hint}</span>}
           </label>
           {changed && <ResetButton big={big} label={s.label} onClick={() => set(def)} />}
         </div>
@@ -272,7 +274,7 @@ export function ParamRow(p: RowProps) {
         </div>
       </div>
       {s.type === "number" && (
-        <div className="mt-0.5">
+        <div className={big ? "mt-0.5" : "-mt-0.5"}>
           <Slider s={s} value={Number(value)} set={set} label={s.label} big={big} />
         </div>
       )}
@@ -281,7 +283,6 @@ export function ParamRow(p: RowProps) {
           <CustomCurve id={id} value={String(value)} set={set} big={big} />
         </div>
       )}
-      {s.hint && <p className="mt-1 text-caption text-fg-3">{s.hint}</p>}
     </div>
   );
 }
@@ -377,12 +378,12 @@ export function AdjustBar({ anim, values, setParam, onShowAll }: { anim: AnimMet
                     aria-controls="adjust-panel"
                     tabIndex={on ? 0 : -1}
                     onClick={() => setActive(key)}
-                    className={`press flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium ${on ? "bg-fg text-surface" : "bg-surface-2 text-fg-2"}`}
+                    className={`press flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-body font-medium ${on ? "bg-fg text-surface" : "bg-surface-2 text-fg-2 shadow-[inset_0_0_0_1px_var(--line)]"}`}
                   >
                     {spec.label}
                     {edited && (
                       <>
-                        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+                        <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${on ? "bg-surface" : "bg-fg"}`} />
                         <span className="sr-only">(changed)</span>
                       </>
                     )}

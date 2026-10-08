@@ -1,5 +1,5 @@
-import { useRef, type CSSProperties, type PointerEvent as RPE, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, Eye, EyeSlash, ImageSquare, Stack, Trash, X } from "@phosphor-icons/react";
+import { useRef, type CSSProperties, type PointerEvent as RPE } from "react";
+import { ArrowDown, ArrowUp, Eye, EyeSlash, ImageSquare, Trash, X } from "@phosphor-icons/react";
 import { byId, type AnimMeta, type Values } from "./registry";
 import type { Perf } from "./suggest";
 import { ColorField } from "./controls";
@@ -143,7 +143,7 @@ export function DropOutline({ l, scale }: { l: Pick<Layer, "cx" | "cy" | "w" | "
 /** Follows the pointer while you drag an animation out of the library, playing it live. */
 export function Ghost({ a, x, y, src, over }: { a: AnimMeta; x: number; y: number; src: string; over: boolean }) {
   return (
-    <div className="pointer-events-none fixed z-[95] w-[200px] overflow-hidden rounded-xl bg-surface shadow-lg" style={{ left: x + 16, top: y + 16, opacity: over ? 0.85 : 1 }}>
+    <div className="pointer-events-none fixed z-[95] w-[200px] overflow-hidden rounded-xl bg-overlay shadow-lg" style={{ left: x + 16, top: y + 16, opacity: over ? 0.85 : 1 }}>
       <div className="relative h-[150px] overflow-hidden bg-canvas">
         <iframe src={src} title="" aria-hidden tabIndex={-1} className="absolute left-0 top-0 origin-top-left border-0" style={{ width: 400, height: 300, transform: "scale(0.5)" }} />
       </div>
@@ -155,7 +155,7 @@ export function Ghost({ a, x, y, src, over }: { a: AnimMeta; x: number; y: numbe
   );
 }
 
-/** Inspector head in Screen mode: what's on the screen, in what order, over what background. */
+/** The inspector in Screen mode: what's on the screen, in what order, over what background. */
 export function ScreenPanel({
   scene,
   sel,
@@ -166,7 +166,6 @@ export function ScreenPanel({
   setBg,
   media,
   setMedia,
-  health,
 }: {
   scene: Scene;
   sel: string | null;
@@ -177,64 +176,57 @@ export function ScreenPanel({
   setBg: (c: string) => void;
   media: Media | null;
   setMedia: (f: File | null) => void;
-  health: ReactNode;
 }) {
   const layers = [...scene.layers].reverse(); // front first, like a layers panel
   return (
-    <div className="px-4 pb-4 pt-4">
-      <p className="flex items-center gap-1.5 text-caption font-medium text-fg-3">
-        <Stack size={14} aria-hidden />
-        Screen builder
-      </p>
-      <h2 className="mt-1 text-heading font-semibold tracking-[-0.012em]">Your screen</h2>
-      <p className="mt-1 text-body text-fg-2">
-        {scene.layers.length
-          ? "Every animation runs together on one screen, so the numbers are the screen's, not one piece's."
-          : "Drag animations from the library onto the device, or click one to drop it in the middle."}
-      </p>
-      {health}
-      <section aria-label="Layers" className="mt-5">
-        <h3 className="mb-1.5 flex items-center justify-between text-caption font-medium text-fg-3">
+    <div>
+      <section aria-label="Layers" className="border-b px-3 pb-3 pt-3.5">
+        <h3 className="flex items-center justify-between px-1 pb-1.5 text-caption font-medium text-fg-3">
           Layers <span className="tabular-nums">{scene.layers.length}</span>
         </h3>
         {!layers.length ? (
-          <p className="rounded-xl border border-dashed border-line-strong px-4 py-6 text-center text-caption text-fg-3">Nothing on the screen yet.</p>
+          <p className="mx-1 rounded-lg border border-dashed border-line-strong px-4 py-6 text-center text-caption text-fg-3">
+            Drag an animation from the library onto the device, or press + on its card.
+          </p>
         ) : (
-          <ul className="space-y-0.5">
+          <ul>
             {layers.map((l) => {
               const a = byId(l.anim);
               const on = l.id === sel;
               return (
-                <li key={l.id} className={`flex items-center gap-0.5 rounded-lg pl-1 pr-1 ${on ? "bg-surface-3" : "hover:bg-surface-2"}`}>
-                  <button type="button" aria-pressed={on} onClick={() => setSel(on ? null : l.id)} className="min-w-0 flex-1 rounded-md px-1.5 py-1.5 text-left">
+                <li key={l.id} className={`group flex items-center gap-0.5 rounded-md pr-1 ${on ? "bg-surface-3" : "hover:bg-surface-2"}`}>
+                  <button type="button" aria-pressed={on} onClick={() => setSel(on ? null : l.id)} className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left">
                     <span className={`block truncate text-body ${l.hidden ? "text-fg-3 line-through" : on ? "font-medium text-fg" : "text-fg-2"}`}>{a?.name ?? l.anim}</span>
-                    <span className={`block truncate text-caption ${on ? "text-fg-2" : "text-fg-3"}`}>
+                    <span className="block truncate text-caption tabular-nums text-fg-3">
                       {l.fill ? "Full screen" : `${l.w}×${l.h} at ${Math.round(l.cx * 100)}%, ${Math.round(l.cy * 100)}%`}
                     </span>
                   </button>
-                  <IconButton size="sm" label={l.hidden ? `Show ${a?.name}` : `Hide ${a?.name}`} active={l.hidden} onClick={() => update(l.id, { hidden: !l.hidden })}>
-                    {l.hidden ? <EyeSlash size={14} /> : <Eye size={14} />}
-                  </IconButton>
-                  <IconButton size="sm" label="Bring forward" onClick={() => reorder(l.id, 1)}>
-                    <ArrowUp size={14} />
-                  </IconButton>
-                  <IconButton size="sm" label="Send backward" onClick={() => reorder(l.id, -1)}>
-                    <ArrowDown size={14} />
-                  </IconButton>
-                  <IconButton size="sm" label={`Remove ${a?.name}`} tipAlign="end" onClick={() => remove(l.id)}>
-                    <Trash size={14} />
-                  </IconButton>
+                  {/* row actions show on hover, focus and for the picked layer, so the list reads as names first */}
+                  <span className={`flex items-center ${on || l.hidden ? "" : "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"}`}>
+                    <IconButton size="sm" label={l.hidden ? `Show ${a?.name}` : `Hide ${a?.name}`} active={l.hidden} onClick={() => update(l.id, { hidden: !l.hidden })}>
+                      {l.hidden ? <EyeSlash size={14} /> : <Eye size={14} />}
+                    </IconButton>
+                    <IconButton size="sm" label="Bring forward" onClick={() => reorder(l.id, 1)}>
+                      <ArrowUp size={14} />
+                    </IconButton>
+                    <IconButton size="sm" label="Send backward" onClick={() => reorder(l.id, -1)}>
+                      <ArrowDown size={14} />
+                    </IconButton>
+                    <IconButton size="sm" label={`Remove ${a?.name}`} tipAlign="end" onClick={() => remove(l.id)}>
+                      <Trash size={14} />
+                    </IconButton>
+                  </span>
                 </li>
               );
             })}
           </ul>
         )}
       </section>
-      <section aria-label="Screen background" className="mt-5">
-        <h3 className="mb-2 text-caption font-medium text-fg-3">Background</h3>
+      <section aria-label="Screen background" className="px-4 pb-4 pt-3.5">
+        <h3 className="pb-2 text-caption font-medium text-fg-3">Background</h3>
         <div className="flex flex-wrap items-center gap-2">
           <ColorField id="scene-bg" label="Screen background" value={scene.bg} def="" set={setBg} />
-          <label className="press inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-body font-medium text-fg shadow-[inset_0_0_0_1px_var(--line-strong)] hover:bg-surface-2 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent">
+          <label className="press inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-surface px-2.5 text-body font-medium text-fg shadow-[inset_0_0_0_1px_var(--line-strong)] hover:bg-surface-2 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-fg dark:bg-surface-2">
             <ImageSquare size={15} aria-hidden />
             {media ? "Replace" : "Image or video"}
             <input type="file" accept="image/*,video/*" className="sr-only" onChange={(e) => e.target.files?.[0] && setMedia(e.target.files[0])} />
@@ -245,7 +237,7 @@ export function ScreenPanel({
             </IconButton>
           )}
         </div>
-        <p className="mt-2 text-caption text-fg-3">{media ? `${media.name} · kept for this tab only.` : "Or drop an image or video file anywhere on the page."}</p>
+        <p className="mt-2 text-caption text-fg-3">{media ? `${media.name}, kept for this tab only.` : "Or drop an image or video anywhere on the page."}</p>
       </section>
     </div>
   );

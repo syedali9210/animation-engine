@@ -3,6 +3,7 @@ import { params } from "./params";
 
 export default {
   name: "Bottom Sheet",
+  poster: { at: 1800, y: 1 },
   category: "UI Patterns",
   tech: ["React", "CSS transitions", "Pointer capture", "Skeleton"],
   blurb: "Drag-to-dismiss sheet on phones that turns into a centred dialog from 768px — on a skeleton loading screen.",

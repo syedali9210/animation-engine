@@ -9,14 +9,17 @@ import { CSS3DObject, CSS3DRenderer } from "three/examples/jsm/renderers/CSS3DRe
 import { HorizontalBlurShader } from "three/examples/jsm/shaders/HorizontalBlurShader.js"
 import { VerticalBlurShader } from "three/examples/jsm/shaders/VerticalBlurShader.js"
 import type { DeviceId, Posture } from "../devices"
-import { SCREEN_SPECULAR, buildDevice, disposeTree, type Built, type Finish } from "./devices3d"
+import { SCREEN_SPECULAR, buildDevice, disposeTree, type Built } from "./devices3d"
+import type { Finish } from "./finishes"
 import type { Pose } from "./poses"
 
 const rad = THREE.MathUtils.degToRad
 
-/** A product-photography set for reflections: a grey room darker towards the floor, a big soft key box up front left,
-    an overhead box, two tall rim strips that draw the bright lines along metal edges, and a gentle fill behind the
-    camera so glass seen face-on carries a faint sheen. Values are light, not colour: they're rendered to HDR. */
+/** A product-photography set, for reflections: a grey room darker towards the floor, a big soft key box up front
+    left, a fill opposite, a long box overhead for flat tops, tall rim strips behind and long strips either side that
+    draw the bright lines down metal edges, and a gentle fill behind the camera so glass seen face-on carries a faint
+    sheen. Metal is nothing but what it reflects, so this set is most of how the devices look. Values are light, not
+    colour: they're rendered to HDR. */
 function studioSet() {
   const set = new THREE.Scene()
   const c = document.createElement("canvas")
@@ -24,10 +27,10 @@ function studioSet() {
   c.height = 256
   const g = c.getContext("2d")!
   const grad = g.createLinearGradient(0, 0, 0, 256)
-  grad.addColorStop(0, "#9a9aa0")
-  grad.addColorStop(0.48, "#6e6e74")
-  grad.addColorStop(0.56, "#3a3a3f")
-  grad.addColorStop(1, "#141416")
+  grad.addColorStop(0, "#b8b8be")
+  grad.addColorStop(0.46, "#7c7c82")
+  grad.addColorStop(0.54, "#3e3e44")
+  grad.addColorStop(1, "#121214")
   g.fillStyle = grad
   g.fillRect(0, 0, 4, 256)
   const sky = new THREE.CanvasTexture(c)
@@ -39,11 +42,15 @@ function studioSet() {
     m.lookAt(0, 0, 0)
     set.add(m)
   }
-  box(26, 18, 7, -16, 22, 26) // key
-  box(36, 22, 3.2, 0, 40, -4) // overhead
-  box(5, 38, 6, -36, 4, -8) // rim, left
-  box(5, 38, 4, 36, 4, -12) // rim, right
-  box(44, 24, 0.9, 0, 6, 44) // fill, behind the camera
+  box(30, 22, 9, -18, 20, 26) // key
+  box(18, 24, 2.6, 22, 6, 24) // fill, opposite the key
+  box(44, 18, 6, 0, 42, 2) // overhead
+  box(6, 44, 9, -36, 6, -12) // rim, left
+  box(6, 44, 7, 36, 6, -14) // rim, right
+  box(5, 34, 4, -42, 2, 8) // side strip, left
+  box(5, 34, 4, 42, 2, 6) // side strip, right
+  box(48, 26, 0.9, 0, 6, 46) // fill, behind the camera
+  box(76, 30, 2.2, 0, 14, -46) // the sweep behind the set: what a silver deck or a flat top seen at an angle mirrors
   return set
 }
 
@@ -156,6 +163,8 @@ export class StudioScene {
   private shadow = new ContactShadow()
   private screenObj: CSS3DObject
   private device?: Built
+  /** the device's box in its own (unturned) space */
+  private local = new THREE.Box3()
   private pose?: Pose
   private look: Look = { shadow: true, reflections: 1 }
   private size = { w: 1, h: 1 }
@@ -209,7 +218,10 @@ export class StudioScene {
     }
     const d = buildDevice(spec.id, spec)
     // rotate about the device's middle
+    d.root.updateMatrixWorld(true)
     d.root.position.copy(new THREE.Box3().setFromObject(d.root).getCenter(new THREE.Vector3()).negate())
+    d.root.updateMatrixWorld(true)
+    this.local = new THREE.Box3().setFromObject(d.root)
     this.stage.add(d.root)
     this.slot.style.width = `${d.slot.w}px`
     this.slot.style.height = `${d.slot.h}px`
@@ -235,7 +247,8 @@ export class StudioScene {
     this.css.setSize(w, h)
   }
 
-  /** Frame the posed device: the camera backs off until every corner of it fits in the frame, then zooms. */
+  /** Frame the posed device: the camera backs off until every corner of its own box, turned with it, fits in the
+      frame, then zooms. */
   private frame(p: Pose) {
     const cam = this.camera
     cam.fov = p.fov
@@ -246,10 +259,11 @@ export class StudioScene {
     this.stage.rotation.set(rad(p.pitch), rad(p.yaw), rad(p.roll), "YXZ")
     this.stage.updateMatrixWorld(true)
     const box = new THREE.Box3().setFromObject(this.device!.root)
-    const center = box.getCenter(new THREE.Vector3())
-    const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z))
+    const L = this.local
+    const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? L.max.x : L.min.x, i & 2 ? L.max.y : L.min.y, i & 4 ? L.max.z : L.min.z).applyMatrix4(this.stage.matrixWorld))
+    const center = L.getCenter(new THREE.Vector3()).applyMatrix4(this.stage.matrixWorld)
     const dir = new THREE.Vector3(Math.sin(rad(p.azim)) * Math.cos(rad(p.elev)), Math.sin(rad(p.elev)), Math.cos(rad(p.azim)) * Math.cos(rad(p.elev)))
-    const radius = box.getSize(new THREE.Vector3()).length() / 2
+    const radius = L.getSize(new THREE.Vector3()).length() / 2
     const fits = (d: number) => {
       cam.position.copy(center).addScaledVector(dir, d)
       cam.lookAt(center)

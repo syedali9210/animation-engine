@@ -3,6 +3,7 @@ import { params } from "./params";
 
 export default {
   name: "Toast Stack",
+  poster: { at: 3600, y: 0.88 },
   category: "UI Patterns",
   tech: ["React", "CSS transitions", "Pointer capture", "Skeleton"],
   blurb: "Sonner-style stack: enter and leave from the anchored edge, tuck behind, expand on hover, swipe to dismiss.",

@@ -26,14 +26,14 @@ export const BASE: Pose = { yaw: 0, pitch: 0, roll: 0, elev: 6, azim: 0, fov: 26
 export type AngleId = "front" | "hero" | "heroLeft" | "tilt" | "float" | "flat" | "low" | "side"
 
 export const ANGLES: { id: AngleId; name: string; pose: Partial<Pose>; mac?: Partial<Pose> }[] = [
+  { id: "hero", name: "¾ right", pose: { yaw: -26, elev: 9, roll: 0 }, mac: { yaw: -24, elev: 18 } },
+  { id: "heroLeft", name: "¾ left", pose: { yaw: 26, elev: 9 }, mac: { yaw: 24, elev: 18 } },
   { id: "front", name: "Front", pose: { elev: 4 }, mac: { elev: 14 } },
-  { id: "hero", name: "Three-quarter", pose: { yaw: -26, elev: 9, roll: 0 }, mac: { yaw: -24, elev: 18 } },
-  { id: "heroLeft", name: "Three-quarter left", pose: { yaw: 26, elev: 9 }, mac: { yaw: 24, elev: 18 } },
-  { id: "tilt", name: "Tilted back", pose: { pitch: -20, yaw: -12, elev: 24 }, mac: { yaw: -10, elev: 32 } },
+  { id: "side", name: "Side", pose: { yaw: -58, elev: 7 }, mac: { yaw: -52, elev: 16 } },
+  { id: "tilt", name: "Tilted", pose: { pitch: -20, yaw: -12, elev: 24 }, mac: { yaw: -10, elev: 32 } },
   { id: "float", name: "Floating", pose: { yaw: -20, pitch: -12, roll: 8, elev: 16, lift: 200 }, mac: { yaw: -20, roll: 4, elev: 24, lift: 120 } },
   { id: "flat", name: "Flat lay", pose: { pitch: -90, roll: -16, elev: 62, lift: 0, fov: 22 }, mac: { yaw: -18, elev: 64, fov: 22 } },
-  { id: "low", name: "Low angle", pose: { yaw: 18, pitch: 6, elev: -6, fov: 30 }, mac: { yaw: 16, elev: 6, fov: 30 } },
-  { id: "side", name: "Side", pose: { yaw: -58, elev: 7 }, mac: { yaw: -52, elev: 16 } },
+  { id: "low", name: "Low", pose: { yaw: 18, pitch: 6, elev: -6, fov: 30 }, mac: { yaw: 16, elev: 6, fov: 30 } },
 ]
 
 export function angle(id: AngleId, device: DeviceId): Pose {
@@ -43,21 +43,26 @@ export function angle(id: AngleId, device: DeviceId): Pose {
 
 /* ---------------- moves ---------------- */
 
-export type MotionId = "still" | "reveal" | "orbit" | "sway" | "push" | "rise"
+export type MotionId = "still" | "reveal" | "spin" | "orbit" | "sway" | "push" | "rise" | "tour"
 
 export const MOTIONS: { id: MotionId; name: string; hint: string; loops?: boolean }[] = [
   { id: "still", name: "Still", hint: "The device holds the shot; only the screen moves." },
-  { id: "reveal", name: "Reveal", hint: "Turns in from −40° and settles on the shot (1.2s), then drifts slowly." },
+  { id: "reveal", name: "Reveal", hint: "Turns in from the side and settles on the shot, then drifts slowly." },
+  { id: "spin", name: "Spin in", hint: "Starts on its back and spins round to the screen, the way a keynote shows a new device." },
   { id: "orbit", name: "Orbit", hint: "The camera sweeps from one side of the shot to the other." },
   { id: "sway", name: "Sway", hint: "A slow turn either side of the shot. Loops seamlessly.", loops: true },
   { id: "push", name: "Push in", hint: "The camera moves in towards the screen." },
-  { id: "rise", name: "Rise", hint: "Comes up from below the frame and settles (1.1s), then holds." },
+  { id: "rise", name: "Rise", hint: "Comes up from below the frame and settles, then holds." },
+  { id: "tour", name: "Tour", hint: "Three angles in one take: the shot, its mirror, then face-on and close." },
 ]
 
 const clamp = (x: number) => Math.min(1, Math.max(0, x))
 const expoOut = (x: number) => (x >= 1 ? 1 : 1 - 2 ** (-10 * x))
+const quintOut = (x: number) => 1 - (1 - x) ** 5
 const sineInOut = (x: number) => 0.5 - 0.5 * Math.cos(Math.PI * x)
 const mix = (a: Pose, b: Pose, k: number): Pose => Object.fromEntries(Object.keys(a).map((key) => [key, a[key as keyof Pose] + (b[key as keyof Pose] - a[key as keyof Pose]) * k])) as Pose
+/** after a move lands: a slow, small turn, so a long take never freezes */
+const drift = (t: number, from: number) => (t > from ? 3 * Math.sin((2 * Math.PI * (t - from)) / 9) : 0)
 
 /** Where the shot is at `t` seconds into a `dur`-second video that starts from pose `p`. */
 export function move(id: MotionId, p: Pose, t: number, dur: number): Pose {
@@ -66,8 +71,16 @@ export function move(id: MotionId, p: Pose, t: number, dur: number): Pose {
     case "reveal": {
       const k = expoOut(clamp(t / 1.2))
       const from = { ...p, yaw: p.yaw - 40, pitch: p.pitch + 10, rise: p.rise - 0.04, zoom: p.zoom * 0.92 }
-      const drift = t > 1.2 ? 3 * Math.sin((2 * Math.PI * (t - 1.2)) / 9) : 0 // slow, small, after it lands
-      return { ...mix(from, p, k), yaw: mix(from, p, k).yaw + drift }
+      const at = mix(from, p, k)
+      return { ...at, yaw: at.yaw + drift(t, 1.2) }
+    }
+    case "spin": {
+      // a full turn less the shot's own yaw, so it lands facing the camera the way the shot does
+      const len = Math.min(2.2, dur * 0.6)
+      const k = quintOut(clamp(t / len))
+      const from = { ...p, yaw: p.yaw + 180, pitch: p.pitch + 6, zoom: p.zoom * 0.86, rise: p.rise - 0.03 }
+      const at = mix(from, p, k)
+      return { ...at, yaw: at.yaw + drift(t, len) }
     }
     case "orbit":
       return { ...p, azim: p.azim - 28 + 56 * sineInOut(u) }
@@ -78,6 +91,16 @@ export function move(id: MotionId, p: Pose, t: number, dur: number): Pose {
     case "rise": {
       const k = expoOut(clamp(t / 1.1))
       return { ...p, rise: p.rise - 0.55 * (1 - k), pitch: p.pitch + 14 * (1 - k), yaw: p.yaw - 10 * (1 - k) }
+    }
+    case "tour": {
+      // hold, glide, hold, glide, hold: each glide in-out, overlapping nothing, so every stop reads as a shot
+      const mirror = { ...p, yaw: -p.yaw || 22, elev: p.elev + 4 }
+      const close = { ...p, yaw: 0, pitch: p.pitch - 6, elev: p.elev + 2, zoom: p.zoom * 1.25 }
+      if (u < 0.22) return p
+      if (u < 0.42) return mix(p, mirror, sineInOut((u - 0.22) / 0.2))
+      if (u < 0.6) return mirror
+      if (u < 0.8) return mix(mirror, close, sineInOut((u - 0.6) / 0.2))
+      return close
     }
     default:
       return p

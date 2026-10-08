@@ -5,6 +5,7 @@ import { params } from "./params"
 export default {
   ...swiggy,
   name: "Home Screen",
+  poster: { at: 1200 },
   order: -1,
   tech: ["React", "Tailwind CSS", "CSS transitions", "Scroll-driven state"],
   blurb: "The whole Swiggy home screen, built from the components in this group: the header fades in, the filters pin and the bottom nav slides away as you scroll. Use it as the base in the Screen builder.",

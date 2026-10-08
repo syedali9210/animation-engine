@@ -5,6 +5,7 @@
 //   GET  /__studio/jobs/:id    -> { state, frame, total, error? }
 //   GET  /__studio/jobs/:id/file
 //   POST /__studio/media       (a dropped background image or video) -> { url }
+//   POST /__studio/posters     { only?: id[] } -> { made }  the library cards' stills, into public/thumbs
 import { spawn, spawnSync, type ChildProcess } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { createReadStream, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
@@ -160,7 +161,8 @@ async function render(job: Job, body: { config: { backdrop: string; duration: nu
     job.file = join(DIR, `${job.id}.${job.ext}`)
     const codec = clear
       ? ["-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le", "-vendor", "apl0"]
-      : ["-vf", "scale=out_range=tv,format=yuv420p", "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-profile:v", "high", "-color_range", "tv", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-movflags", "+faststart"]
+      : // Chrome's JPEGs are full-range BT.601; video players expect limited-range BT.709, tagged as such
+        ["-vf", "scale=in_range=full:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt709,format=yuv420p,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709", "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-profile:v", "high", "-movflags", "+faststart"]
     encoder = spawn(ff!, ["-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(fps), "-c:v", clear ? "png" : "mjpeg", "-i", "-", ...codec, job.file], { stdio: ["pipe", "ignore", "pipe"] })
     let ffErr = ""
     encoder.stderr!.on("data", (b: Buffer) => (ffErr += b.toString()))
@@ -181,6 +183,56 @@ async function render(job: Job, body: { config: { backdrop: string; duration: nu
     encoder?.kill()
     setTimeout(() => rmSync(profile, { recursive: true, force: true }), 2000)
   }
+}
+
+type PosterMeta = { id: string; html?: boolean; layout?: string; poster?: { at?: number; y?: number } }
+
+/** The library's card stills: each animation on an iPhone-sized page, run on the stepped clock to its moment, cropped
+    to the card's 4:3, in both themes. Written to public/thumbs/<id>-<light|dark>.webp. */
+async function posters(server: ViteDevServer, origin: string, only: string[]) {
+  const chrome = findChrome()
+  if (!chrome) throw new Error("Couldn't find Chrome or Edge to render with. Set STUDIO_CHROME to its path.")
+  const { ANIMS } = (await server.ssrLoadModule("/src/registry.ts")) as { ANIMS: PosterMeta[] }
+  const out = join(server.config.publicDir, "thumbs")
+  mkdirSync(out, { recursive: true })
+  const W = 402
+  const H = 874
+  const CH = Math.round((W * 3) / 4)
+  const profile = mkdtempSync(join(tmpdir(), "anim-engine-chrome-"))
+  const cdp = await devtools(chrome, profile)
+  const made: string[] = []
+  try {
+    await cdp.send("Page.enable")
+    await cdp.send("Runtime.enable")
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false })
+    for (const a of ANIMS.filter((x) => !only.length || only.includes(x.id))) {
+      for (const scheme of ["light", "dark"]) {
+        const q = new URLSearchParams({ frame: "poster", rm: "0", cs: scheme, vt: "1", dpr: "2", host: origin })
+        if (!a.html) q.set("a", a.id)
+        await cdp.send("Page.navigate", { url: `${origin}${a.html ? `/anim/${a.id}/index.html` : "/stage.html"}?${q}` })
+        for (let i = 0; i < 200 && !(await cdp.evaluate("document.readyState === 'complete' && !!window.__adv").catch(() => false)); i++) await sleep(50)
+        // React mounts the animation lazily, on timers that only run when the clock is stepped
+        for (let i = 0; i < 400 && !(await cdp.evaluate(`window.__adv(16).then(() => !!document.querySelector("#root > *, body > :not(script):not(#root)"))`)); i++) await sleep(8)
+        await cdp.evaluate("Promise.all([...document.images].map((i) => i.complete || new Promise((r) => { i.onload = i.onerror = r }))).then(() => document.fonts.ready).then(() => true)")
+        // in frame-sized steps, so anything that builds up frame by frame gets its frames
+        for (let t = 0; t < (a.poster?.at ?? 1800); t += 16) await cdp.evaluate("window.__adv(16)")
+        // GPU work lands on its own time: give WebGL / WebGPU a few real frames to present
+        for (let i = 0; i < 6; i++) {
+          await cdp.evaluate("window.__adv(16)")
+          await sleep(60)
+        }
+        const y = a.poster?.y ?? (a.layout === "fill" ? 0 : 0.5)
+        const top = Math.round(Math.min(H - CH, Math.max(0, y * H - CH / 2)))
+        const { data } = await cdp.send<{ data: string }>("Page.captureScreenshot", { format: "webp", quality: 82, clip: { x: 0, y: top, width: W, height: CH, scale: 1 } })
+        writeFileSync(join(out, `${a.id}-${scheme}.webp`), Buffer.from(data, "base64"))
+      }
+      made.push(a.id)
+    }
+  } finally {
+    await cdp.close()
+    setTimeout(() => rmSync(profile, { recursive: true, force: true }), 2000)
+  }
+  return made
 }
 
 const json = (res: ServerResponse, code: number, body: unknown) => {
@@ -234,6 +286,15 @@ export function studio(): Plugin {
         return json(res, 200, { url: `/__studio/media/${mid}` })
       }
       if (what === "media" && id && media.has(id)) return sendFile(req, res, media.get(id)!.file, media.get(id)!.type)
+      if (what === "posters" && req.method === "POST") {
+        const body = JSON.parse((await readBody(req)).toString() || "{}") as { only?: string[] }
+        const run = queue.then(() => posters(server, origin, body.only ?? []))
+        queue = run.then(
+          () => {},
+          () => {},
+        )
+        return json(res, 200, { made: await run })
+      }
       if (what === "jobs" && req.method === "POST") {
         const body = JSON.parse((await readBody(req)).toString())
         const job: Job = { id: randomUUID(), kind: body.kind === "video" ? "video" : "png", state: "queued", frame: 0, total: 0 }

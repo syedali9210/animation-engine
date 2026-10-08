@@ -2,6 +2,7 @@ import type { AnimMeta } from "../../registry";
 
 export default {
   name: "Coins & Notes",
+  poster: { at: 1800, y: 0.5 },
   category: "Shaders & GPU",
   tech: ["Three.js", "WebGL", "GLSL", "vgpu", "WGSL", "Bloom"],
   blurb: "Struck coins and printed banknotes with six shader looks: prism, holo, mint, topo, X-ray and a UV torch.",
