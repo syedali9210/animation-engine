@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { CaretUpDown, Check, Copy, FileZip, Terminal, Warning, WarningCircle } from "@phosphor-icons/react";
+import { CaretUpDown, Check, Copy, Cube, FileZip, Terminal, Warning, WarningCircle } from "@phosphor-icons/react";
 import type { AnimMeta, Value, Values } from "./registry";
 import { type Device } from "./devices";
 import { detectHost, deviceLoad, type Perf, type Suggestion } from "./suggest";
@@ -42,13 +42,13 @@ export default function Inspector({ title, actions, children }: { title: string;
 
 /* ---------------- properties ---------------- */
 
-export function PropertiesPanel({ anim, values, setParam, big }: { anim: AnimMeta; values: Values; setParam: (k: string, v: Value) => void; big?: boolean }) {
+export function PropertiesPanel({ anim, values, setParam, big, cols }: { anim: AnimMeta; values: Values; setParam: (k: string, v: Value) => void; big?: boolean; cols?: boolean }) {
   const groups = groupSchema(anim);
   if (!groups.length) return <p className="px-6 py-10 text-center text-body text-fg-3">This one has nothing to tune.</p>;
   return (
-    <div className="pb-2">
+    <div className={cols ? "columns-2 gap-0 pb-2 [column-rule:1px_solid_var(--line)]" : "pb-2"}>
       {groups.map(([g, list]) => (
-        <section key={g} aria-label={g} className="border-b px-4 pb-3 pt-3.5 last:border-b-0">
+        <section key={g} aria-label={g} className={`break-inside-avoid px-4 pb-3 pt-3.5 ${cols ? "" : "border-b last:border-b-0"}`}>
           <h3 className="pb-1.5 text-caption font-medium text-fg-3">{g}</h3>
           {list.map(([k, s]) => (
             <ParamRow key={k} k={k} s={s} value={values[k]} def={anim.params[k]} set={(v) => setParam(k, v)} big={big} />
@@ -241,7 +241,7 @@ function Budget({ label, ms, budget }: { label: string; ms: number; budget: numb
 
 /* ---------------- export (the animation's code) ---------------- */
 
-export function CodeExport({ anim, values, exporting, exportZip, say }: { anim: AnimMeta; values: Values; exporting: boolean; exportZip: () => void; say: (s: string) => void }) {
+export function CodeExport({ anim, values, exporting, exportZip, say, onMockup }: { anim: AnimMeta; values: Values; exporting: boolean; exportZip: () => void; say: (s: string) => void; onMockup: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="w-[300px] max-w-[calc(100vw-16px)] p-1.5">
@@ -260,6 +260,10 @@ export function CodeExport({ anim, values, exporting, exportZip, say }: { anim: 
         }
       >
         Copy values
+      </MenuItem>
+      <div className="my-1 border-t" />
+      <MenuItem icon={Cube} hint="On a 3D device, as an image or a video for a post or a portfolio." onSelect={onMockup}>
+        Make a mockup
       </MenuItem>
       {anim.deps && (
         <div className="mt-1 flex items-start gap-2.5 border-t px-2.5 pb-1.5 pt-2.5">

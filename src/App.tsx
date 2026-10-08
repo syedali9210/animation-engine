@@ -2,8 +2,12 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   ArrowCounterClockwise,
   BookOpen,
+  CaretUp,
   CaretDown,
+  CaretLeft,
+  CaretRight,
   CaretUpDown,
+  Check,
   Columns,
   Cube,
   Cursor,
@@ -24,6 +28,7 @@ import {
   Plus,
   SidebarSimple,
   SlidersHorizontal,
+  SquaresFour,
   Stack,
   Sun,
   WarningCircle,
@@ -35,13 +40,13 @@ import Inspector, { CodeExport, Dot, Insights, PropertiesPanel, changedCount, fp
 import Library from "./Library";
 import { AdjustBar, field } from "./controls";
 import { DropOutline, Ghost, LayerHandle, ScreenPanel, aggregate, layerBox, newLayer, type Layer, type Media, type Scene } from "./scene";
-import { Button, Count, Dialog, IconButton, Kbd, Logo, MenuItem, Popover, Segmented, Sheet, Switch, useMedia, type Icon } from "./ui";
+import { Button, Count, Dialog, IconButton, Kbd, MenuItem, Popover, Segmented, Sheet, Switch, closePopover, useMedia, type Icon } from "./ui";
 import { detectHost, suggest, type Suggestion } from "./suggest";
 import { downloadZip } from "./exporter";
 import type { RenderConfig } from "./studio/config";
 import { serverMedia, useExport, type ExportKind } from "./studio/export";
 import { DEFAULT_SHOT, backdropCss, finishOf, shotPose, sizeOf, type Shot } from "./studio/shot";
-import { MockupExport, MockupPanel } from "./studio/Studio";
+import { MockupBar, MockupExport, MockupPanel } from "./studio/Studio";
 
 // the 3D stage brings three.js, so it loads the first time the mockup opens
 const StudioStage = lazy(() => import("./studio/Stage"));
@@ -158,15 +163,25 @@ export default function App() {
 
   // Mockup: the device in 3D under studio light, with the live screen on it, exported as a still or a video
   const [studioOn, setStudio] = useState(() => store.get("studio", false));
-  const [shot, setShotState] = useState<Shot>(() => ({ ...DEFAULT_SHOT, ...store.get<Partial<Shot>>("shot", {}) }));
+  const [shot, setShotState] = useState<Shot>(() => ({
+    ...DEFAULT_SHOT,
+    ...(matchMedia("(max-width: 767.98px) and (orientation: portrait)").matches ? { size: "9x16" } : {}),
+    ...store.get<Partial<Shot>>("shot", {}),
+  }));
   const setShot = useCallback((patch: Partial<Shot>) => setShotState((x) => ({ ...x, ...patch })), []);
   // the move previews on its own unless the system asks for less motion
   const [playing, setPlaying] = useState(() => !matchMedia("(prefers-reduced-motion: reduce)").matches);
   const exporter = useExport();
 
-  // the phone layout is for portrait phones; landscape phones and short windows get the side panel
+  // the phone layout is for portrait phones; landscape phones and short windows get the side panel, with tighter
+  // margins; the library stays open beside the stage from iPad-landscape widths up
   const phone = useMedia("(max-width: 767.98px) and (orientation: portrait)");
-  const wide = useMedia("(min-width: 1280px)");
+  const short = useMedia("(max-height: 560px)");
+  // a tablet held upright: the stage gets the full width, and a panel under it holds the properties or the library
+  const tablet = useMedia("(min-width: 768px) and (max-width: 1119.98px) and (orientation: portrait)");
+  const [panel, setPanel] = useState<"inspect" | "library">("inspect");
+  const [panelOpen, setPanelOpen] = useState(() => store.get("panelOpen", true));
+  const wide = useMedia("(min-width: 1120px)");
   const coarse = useMedia("(pointer: coarse)");
 
   useEffect(() => {
@@ -183,6 +198,7 @@ export default function App() {
   useEffect(() => store.set("posture", posture), [posture]);
   useEffect(() => store.set("mode", mode), [mode]);
   useEffect(() => store.set("keys", keys), [keys]);
+  useEffect(() => store.set("panelOpen", panelOpen), [panelOpen]);
   useEffect(() => store.set("studio", studioOn), [studioOn]);
   useEffect(() => store.set("shot", shot), [shot]);
   useEffect(() => {
@@ -192,6 +208,12 @@ export default function App() {
   useEffect(() => {
     document.title = `${screen ? "Screen builder" : anim.name} · Animation Engine`;
   }, [anim, screen]);
+  // a mockup export says how it went even after its popover has closed
+  const xs = exporter.state;
+  useEffect(() => {
+    if (xs.phase === "done") say(`Downloaded ${xs.file}`);
+    else if (xs.phase === "error") say(xs.message);
+  }, [xs]);
   // what a toast says stays a moment, then clears (the live region announces it once)
   useEffect(() => {
     if (!said) return;
@@ -212,7 +234,7 @@ export default function App() {
   }, [dark]);
 
   // phones don't get Compare: four devices side by side would be thumbnails; the mockup frames one device
-  const studio = studioOn && !phone;
+  const studio = studioOn;
   const shown: View = (phone || studio) && view === "compare" ? "iphone" : view;
   const devices = useMemo(() => (shown === "compare" ? DEVICES : DEVICES.filter((d) => d.id === shown)), [shown]);
   const hasDuo = devices.some((d) => d.fold);
@@ -256,6 +278,10 @@ export default function App() {
     if (!scene.layers.length) addLayer(id); // start from what you were looking at
     else setMode("screen");
     setLibOpen(false);
+  };
+  const stepAnim = (dir: number) => {
+    setMode("single");
+    setId((cur) => ANIMS[(ANIMS.findIndex((a) => a.id === cur) + dir + ANIMS.length) % ANIMS.length].id);
   };
   const openAnim = (aid: string) => {
     setId(aid);
@@ -387,10 +413,15 @@ export default function App() {
 
   /* ---------- keyboard ---------- */
   const firstViewport = viewport(devices[0], landscape, posture);
-  const env = useRef({ wide, keys, screen, sel, vp: firstViewport, layers: scene.layers, phone });
-  env.current = { wide, keys, screen, sel, vp: firstViewport, layers: scene.layers, phone };
+  const env = useRef({ wide, tablet, keys, screen, sel, vp: firstViewport, layers: scene.layers });
+  env.current = { wide, tablet, keys, screen, sel, vp: firstViewport, layers: scene.layers };
+  const stepRef = useRef(stepAnim);
+  stepRef.current = stepAnim;
   const openLibrary = useCallback((focusSearch: boolean) => {
-    if (!env.current.wide) setLibOpen(true);
+    if (env.current.tablet) {
+      setPanel("library");
+      setPanelOpen(true);
+    } else if (!env.current.wide) setLibOpen(true);
     if (focusSearch) requestAnimationFrame(() => searchRef.current?.focus());
   }, []);
   useEffect(() => {
@@ -423,24 +454,20 @@ export default function App() {
         if (e.key === "Escape") return setSel(null);
       }
       if (!s.keys) return;
-      const go = (dir: number) => {
-        setMode("single");
-        setId((cur) => ANIMS[(ANIMS.findIndex((a) => a.id === cur) + dir + ANIMS.length) % ANIMS.length].id);
-      };
       const map: Record<string, () => void> = {
         "1": () => setView("iphone"),
         "2": () => setView("duo"),
         "3": () => setView("ipad"),
         "4": () => setView("macbook"),
         "5": () => setView("compare"),
-        p: () => !s.phone && setStudio((x) => !x),
+        p: () => setStudio((x) => !x),
         f: () => setPosture((p) => (p === "folded" ? "open" : "folded")),
         l: () => setLandscape((x) => !x),
         t: flipTheme,
         m: () => setReduce((x) => !x),
         r: () => setReplay((x) => x + 1),
-        "[": () => go(-1),
-        "]": () => go(1),
+        "[": () => stepRef.current(-1),
+        "]": () => stepRef.current(1),
         "/": () => openLibrary(true),
         "?": () => setHelp(true),
       };
@@ -511,10 +538,10 @@ export default function App() {
   }, []);
   const compare = devices.length > 1;
   const sizes = devices.map((d) => (d.fold ? frameSize(d, duoPose.landscape, duoPose.posture) : frameSize(d, landscape, posture)));
-  const PAD = phone ? 16 : 40;
+  const PAD = phone ? 16 : short ? 12 : 40;
   const GAP = phone ? 24 : 48;
-  // the floating dock under the devices (desktop always; phones only for the Duo's posture or a built screen)
-  const DOCK = phone ? (hasDuo || screen ? 56 : 0) : 64;
+  // the floating dock under the devices (on a phone the Duo's posture gets a second row)
+  const DOCK = phone ? 64 + (hasDuo ? 48 : 0) : short ? 56 : 64;
   const fit = Math.min(
     (box.w - PAD * 2 - GAP * (devices.length - 1)) / sizes.reduce((s, f) => s + f.w, 0),
     (box.h - PAD * 2 - DOCK - (compare ? 84 : 44)) / Math.max(...sizes.map((f) => f.h)),
@@ -707,6 +734,7 @@ export default function App() {
       setShot={setShot}
       playing={playing}
       setPlaying={setPlaying}
+      compact={phone || short}
     >
       {screenFor(studioDevice, 1)}
       </StudioStage>
@@ -744,6 +772,15 @@ export default function App() {
                           visible.map((l) => (
                             <LayerHandle key={l.id} l={l} selected={l.id === sel} onSelect={() => setSel(l.id)} onChange={(p) => updateLayer(l.id, p)} screen={v} scale={scale} />
                           ))}
+                        {screen && !visible.length && !dropping?.over && (
+                          <div className="pointer-events-none absolute inset-6 grid place-items-center rounded-[28px] border-2 border-dashed border-line-strong p-8 text-center text-balance">
+                            <span>
+                              <Plus size={34} aria-hidden className="mx-auto text-fg-3" />
+                              <span className="mt-3 block text-[19px] font-semibold text-fg-2">Drop animations here</span>
+                              <span className="mt-1 block text-[15px] text-fg-3">{coarse ? "Tap + on a card in the library" : "Drag a card from the library, or press + on it"}</span>
+                            </span>
+                          </div>
+                        )}
                         {dropping?.over && (
                           <DropOutline l={{ cx: dropping.over.cx, cy: dropping.over.cy, w: 340, h: 340, fill: byId(dropping.anim)?.layout === "fill" }} scale={scale} />
                         )}
@@ -837,8 +874,9 @@ export default function App() {
         setLibOpen(false);
       }}
       onDrag={coarse ? undefined : beginDrag}
-      onClose={wide ? undefined : () => setLibOpen(false)}
-      visible={wide || libOpen}
+      onClose={wide || tablet ? undefined : () => setLibOpen(false)}
+      visible={wide || libOpen || (tablet && panel === "library" && panelOpen)}
+      bare={tablet}
       dark={dark}
       previewSrc={previewSrc}
       footer={
@@ -856,7 +894,7 @@ export default function App() {
   const dragAnim = drag && byId(drag.anim);
   const overlays = (
     <>
-      {!wide && (
+      {!wide && !tablet && (
         <Dialog open={libOpen} onClose={() => setLibOpen(false)} label="Library" className="drawer">
           {library}
         </Dialog>
@@ -921,36 +959,103 @@ export default function App() {
           </div>
         </div>
       )}
-      <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+88px)] z-[80] flex justify-center px-4">
+      <div aria-live="polite" className={`pointer-events-none fixed inset-x-0 z-[80] flex justify-center px-4 ${phone ? "top-[calc(env(safe-area-inset-top)+68px)]" : "bottom-[calc(env(safe-area-inset-bottom)+88px)]"}`}>
         {said && <p className="rounded-full bg-fg px-3.5 py-1.5 text-caption font-medium text-surface shadow-md">{said}</p>}
       </div>
     </>
   );
 
-  /* ---------------- phone: stage, one-property adjust bar, sheets ---------------- */
+  const viewSwitch = (
+    <Segmented
+      label="View"
+      value={studio ? "mockup" : "preview"}
+      onChange={(v) => setStudio(v === "mockup")}
+      options={[
+        { value: "preview", label: "Preview", icon: phone ? undefined : Devices },
+        { value: "mockup", label: "Mockup", icon: phone ? undefined : Cube },
+      ]}
+    />
+  );
+  // the stage changes in place: a short fade, so Preview ⇄ Mockup reads as one place changing
+  const surface = (
+    <div key={studio ? "mockup" : "preview"} className="fade-in relative flex min-h-0 flex-1 flex-col">
+      {studio ? studioStage : stage}
+    </div>
+  );
+
+  /* ---------------- phone: one top bar, the stage, one bar of tuning, sheets ---------------- */
   if (phone) {
     const content = sheet ?? lastSheet;
+    const DeviceIcon = VIEWS.find((v) => v.value === shown)!.icon;
+    const deviceMenu = (
+      <>
+        <button
+          type="button"
+          popoverTarget="device-menu"
+          aria-label={`Device: ${devices[0].name}`}
+          className="press flex h-10 items-center gap-1 rounded-lg pl-2.5 pr-2 text-fg hover:bg-surface-2"
+        >
+          <DeviceIcon size={18} aria-hidden />
+          <CaretUpDown size={12} aria-hidden className="text-fg-3" />
+        </button>
+        <Popover id="device-menu" side="top" align="start" label="Device">
+          <div role="radiogroup" aria-label="Device" className="w-[248px] p-1.5">
+            {DEVICES.map((d) => {
+              const V = VIEWS.find((x) => x.value === d.id)!;
+              const on = shown === d.id;
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={(e) => {
+                    setView(d.id);
+                    closePopover(e.currentTarget);
+                  }}
+                  className="press flex w-full items-center gap-3 rounded-md px-2.5 py-2.5 text-left text-body hover:bg-surface-2"
+                >
+                  <V.icon size={18} aria-hidden className="text-fg-2" />
+                  <span className="flex-1">{d.name}</span>
+                  {on && <Check size={15} weight="bold" aria-hidden />}
+                </button>
+              );
+            })}
+          </div>
+        </Popover>
+      </>
+    );
+    const exportMockupBtn = (
+      <>
+        <button type="button" popoverTarget="export-pop" aria-label="Export" className="press grid h-10 w-10 place-items-center rounded-lg bg-accent text-on-accent shadow-xs">
+          <DownloadSimple size={18} weight="bold" aria-hidden />
+        </button>
+        <Popover id="export-pop" side="top" align="end" label="Export">
+          <MockupExport shot={shot} set={setShot} exporting={exporter.state} onExport={exportMockup} />
+        </Popover>
+      </>
+    );
     return (
       <div className="flex h-full flex-col bg-canvas">
         <header className="shrink-0 border-b bg-surface pt-[env(safe-area-inset-top)]">
-          <div className="flex h-14 items-center gap-1 px-1.5">
+          <div className="flex h-14 items-center gap-1.5 pl-1.5 pr-2">
             <button
               type="button"
               onClick={() => openLibrary(false)}
               aria-haspopup="dialog"
               aria-expanded={libOpen}
               aria-label={screen ? "Screen builder. Open the library" : `${anim.name}, ${anim.category}. Choose another animation`}
-              className="press flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-surface-2"
+              className="press flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-surface-2"
             >
-              <Logo size={28} />
               <span className="min-w-0">
-                <span className="flex items-center gap-1.5 text-ui font-semibold">
+                <span className="flex items-center gap-1 text-ui font-semibold">
                   <span className="truncate">{screen ? "Screen builder" : anim.name}</span>
                   <CaretDown size={12} weight="bold" aria-hidden className="shrink-0 text-fg-3" />
                 </span>
                 <span className="block truncate text-caption text-fg-3">{screen ? `${visible.length} on the screen` : anim.category}</span>
               </span>
             </button>
+            {viewSwitch}
             <IconButton size="lg" label="More" popover="phone-more">
               <DotsThree size={20} weight="bold" />
             </IconButton>
@@ -975,32 +1080,30 @@ export default function App() {
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <main aria-label="Stage" className="relative flex min-h-0 flex-1 flex-col">
-            <div className="flex h-14 shrink-0 items-center justify-between gap-1 px-2.5">
-              <div className="flex items-center gap-1">
-                <Segmented size="lg" label="Device" value={shown} onChange={setView} options={VIEWS.slice(0, 4)} hideLabels="always" />
-                {rotateBtn}
-              </div>
-              <div className="flex items-center">
-                {rmBtn}
-                {replayBtn}
-              </div>
-            </div>
-            {stage}
-            {(hasDuo || screen) && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-3">
-                <div className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-xl bg-overlay p-1 shadow-md no-scrollbar">
-                  {hasDuo && postureSeg}
-                  {hasDuo && screen && divider}
-                  {screen && pointerSeg}
+            {surface}
+            {!studio && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex flex-col items-center gap-2 px-3">
+                {hasDuo && <div className="pointer-events-auto rounded-xl bg-overlay p-1 shadow-md">{postureSeg}</div>}
+                <div role="toolbar" aria-label="Stage" className="pointer-events-auto flex items-center gap-0.5 rounded-xl bg-overlay p-1 shadow-md">
+                  {deviceMenu}
+                  {rotateBtn}
+                  {screen && (
+                    <IconButton size="lg" label="Use the animations (off: arrange the layers)" active={!arrange} onClick={() => setArrange(!arrange)}>
+                      <HandPointing size={18} />
+                    </IconButton>
+                  )}
+                  {rmBtn}
+                  {replayBtn}
                 </div>
               </div>
             )}
           </main>
-          {screen && !layer ? (
-            <section aria-label="Screen builder" className="shrink-0 border-t bg-surface px-4 py-4">
-              <p className="text-ui font-medium">{scene.layers.length ? "Pick a layer to tune it" : "Build a screen"}</p>
-              <p className="mt-0.5 text-caption text-fg-3">Tap an animation on the device to pick it, or add one from the library.</p>
-              <div className="mt-3 flex gap-2">
+          {studio ? (
+            <MockupBar d={studioDevice} shot={shot} set={setShot} setDevice={(x) => setView(x)} posture={posture} setPosture={setPosture} exportButton={exportMockupBtn} />
+          ) : screen && !layer ? (
+            <section aria-label="Screen builder" className="shrink-0 border-t bg-surface px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3">
+              <p className="px-1 text-caption text-fg-3">{scene.layers.length ? "Tap a layer on the device to tune it." : "Add an animation to start building a screen."}</p>
+              <div className="mt-2.5 grid grid-cols-2 gap-2">
                 <Button size="lg" variant="primary" onClick={() => openLibrary(false)}>
                   <Plus size={16} weight="bold" aria-hidden />
                   Add animation
@@ -1038,7 +1141,19 @@ export default function App() {
   }
 
   /* ---------------- tablet & desktop: library | stage | inspector ---------------- */
-  const crumbs = (
+  const crumbs = !wide ? (
+    <button
+      type="button"
+      onClick={() => openLibrary(!coarse)}
+      aria-haspopup="dialog"
+      aria-expanded={libOpen}
+      aria-label={screen ? "Screen builder. Open the library" : `${anim.name}, ${anim.category}. Choose another animation`}
+      className="press flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-body hover:bg-surface-2"
+    >
+      <span className="truncate font-medium">{screen ? "Screen builder" : anim.name}</span>
+      <CaretDown size={11} weight="bold" aria-hidden className="shrink-0 text-fg-3" />
+    </button>
+  ) : (
     <nav aria-label="Breadcrumb" className="min-w-0">
       <ol className="flex min-w-0 items-center gap-1.5 text-body">
         {screen ? (
@@ -1070,7 +1185,7 @@ export default function App() {
         {studio ? (
           <MockupExport shot={shot} set={setShot} exporting={exporter.state} onExport={exportMockup} />
         ) : (
-          <CodeExport anim={subject} values={subjectValues} exporting={exporting} exportZip={exportZip} say={say} />
+          <CodeExport anim={subject} values={subjectValues} exporting={exporting} exportZip={exportZip} say={say} onMockup={() => setStudio(true)} />
         )}
       </Popover>
     </>
@@ -1096,6 +1211,83 @@ export default function App() {
     </div>
   );
 
+  /** What the inspector shows, wherever it sits: the mockup's settings, the screen's layers, or the properties. */
+  const inspectorBody = (cols: boolean) =>
+    studio ? (
+      <MockupPanel d={studioDevice} shot={shot} set={setShot} setDevice={(x) => setView(x)} posture={posture} setPosture={setPosture} cols={cols} />
+    ) : screen ? (
+      <>
+        {screenPanel}
+        {layer ? (
+          <>
+            <div className="flex h-11 items-center gap-2 border-y bg-surface-2/50 pl-4 pr-2.5">
+              <SlidersHorizontal size={15} aria-hidden className="shrink-0 text-fg-3" />
+              <p className="mr-auto truncate text-body font-medium">{subject.name}</p>
+              {resetBtn()}
+            </div>
+            <PropertiesPanel anim={subject} values={subjectValues} setParam={setParam} cols={cols} />
+          </>
+        ) : (
+          scene.layers.length > 0 && <p className="px-6 py-8 text-center text-caption text-fg-3">Pick a layer to tune its properties.</p>
+        )}
+      </>
+    ) : (
+      <PropertiesPanel anim={subject} values={subjectValues} setParam={setParam} cols={cols} />
+    );
+  const inspectTitle = studio ? "Mockup" : screen ? "Screen" : "Properties";
+
+  /* ---------------- tablet held upright: the stage full width, a panel under it ---------------- */
+  if (tablet) {
+    return (
+      <div className="flex h-full flex-col bg-canvas">
+        <header className="grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b bg-surface px-2">
+          <div className="flex min-w-0 items-center gap-1 pl-1">
+            {crumbs}
+            {!screen && (
+              <span className="flex items-center">
+                <IconButton label="Previous animation" kbd="[" onClick={() => stepAnim(-1)}>
+                  <CaretLeft size={16} />
+                </IconButton>
+                <IconButton label="Next animation" kbd="]" onClick={() => stepAnim(1)}>
+                  <CaretRight size={16} />
+                </IconButton>
+              </span>
+            )}
+          </div>
+          {viewSwitch}
+          <div className="flex min-w-0 items-center justify-end gap-1.5">{exportBtn}</div>
+        </header>
+        <main aria-label="Stage" className="relative flex min-h-0 flex-1 flex-col">
+          {surface}
+          {dock}
+        </main>
+        <section aria-label={panel === "library" ? "Library" : inspectTitle} className={`flex shrink-0 flex-col border-t bg-surface ${panelOpen ? "h-[40%]" : ""}`}>
+          <div className="flex h-14 shrink-0 items-center gap-2 pl-3 pr-2">
+            <Segmented
+              label="Panel"
+              value={panel}
+              onChange={(v) => {
+                setPanel(v);
+                setPanelOpen(true);
+              }}
+              options={[
+                { value: "inspect", label: inspectTitle, icon: SlidersHorizontal },
+                { value: "library", label: "Library", icon: SquaresFour },
+              ]}
+            />
+            {panel === "inspect" && panelOpen && !studio && resetBtn()}
+            <span className="ml-auto" />
+            <IconButton label={panelOpen ? "Hide the panel" : "Show the panel"} expanded={panelOpen} onClick={() => setPanelOpen(!panelOpen)}>
+              {panelOpen ? <CaretDown size={18} /> : <CaretUp size={18} />}
+            </IconButton>
+          </div>
+          {panelOpen && <div className="scroll-thin min-h-0 flex-1 overflow-y-auto border-t">{panel === "library" ? library : inspectorBody(true)}</div>}
+        </section>
+        {overlays}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full">
       <a href="#inspector" className="skip-link">
@@ -1112,16 +1304,18 @@ export default function App() {
               </IconButton>
             )}
             {crumbs}
+            {!screen && (
+              <span className="hidden items-center lg:flex">
+                <IconButton size="sm" label="Previous animation" kbd="[" onClick={() => stepAnim(-1)}>
+                  <CaretLeft size={14} />
+                </IconButton>
+                <IconButton size="sm" label="Next animation" kbd="]" onClick={() => stepAnim(1)}>
+                  <CaretRight size={14} />
+                </IconButton>
+              </span>
+            )}
           </div>
-          <Segmented
-            label="View"
-            value={studio ? "mockup" : "preview"}
-            onChange={(v) => setStudio(v === "mockup")}
-            options={[
-              { value: "preview", label: "Preview", icon: Devices },
-              { value: "mockup", label: "Mockup", icon: Cube },
-            ]}
-          />
+          {viewSwitch}
           <div className="flex min-w-0 items-center justify-end gap-1.5">
             {!studio && !compare && (
               <span className="relative hidden lg:block">
@@ -1142,35 +1336,13 @@ export default function App() {
             {exportBtn}
           </div>
         </div>
-        {studio ? studioStage : stage}
+        {surface}
         {dock}
       </main>
 
-      {studio ? (
-        <Inspector title="Mockup">
-          <MockupPanel d={studioDevice} shot={shot} set={setShot} setDevice={(x) => setView(x)} posture={posture} setPosture={setPosture} />
-        </Inspector>
-      ) : screen ? (
-        <Inspector title="Screen">
-          {screenPanel}
-          {layer ? (
-            <>
-              <div className="flex h-11 items-center gap-2 border-y bg-surface-2/50 pl-4 pr-2.5">
-                <SlidersHorizontal size={15} aria-hidden className="shrink-0 text-fg-3" />
-                <p className="mr-auto truncate text-body font-medium">{subject.name}</p>
-                {resetBtn()}
-              </div>
-              <PropertiesPanel anim={subject} values={subjectValues} setParam={setParam} />
-            </>
-          ) : (
-            scene.layers.length > 0 && <p className="px-6 py-8 text-center text-caption text-fg-3">Pick a layer to tune its properties.</p>
-          )}
-        </Inspector>
-      ) : (
-        <Inspector title="Properties" actions={resetBtn()}>
-          <PropertiesPanel anim={subject} values={subjectValues} setParam={setParam} />
-        </Inspector>
-      )}
+      <Inspector title={inspectTitle} actions={!studio && !screen ? resetBtn() : undefined}>
+        {inspectorBody(false)}
+      </Inspector>
       {overlays}
     </div>
   );

@@ -88,6 +88,9 @@
   --bad-ink: #dc2626;
   --control-off: #d4d4d8;
   --track-off: #e4e4e7;
+  /* slider fields: a soft fill of ink up to the value, a shade firmer under the pointer */
+  --slider-fill: rgb(9 9 11 / 0.075);
+  --slider-fill-hover: rgb(9 9 11 / 0.11);
   --tip-bg: #18181b;
   --tip-fg: #fafafa;
   --veil: #f7f7f8;
@@ -123,6 +126,8 @@
   --bad-ink: #f87171;
   --control-off: #3f3f46;
   --track-off: #2a2a2f;
+  --slider-fill: rgb(255 255 255 / 0.09);
+  --slider-fill-hover: rgb(255 255 255 / 0.14);
   --tip-bg: #26262b;
   --tip-fg: #fafafa;
   --veil: #0a0a0b;
@@ -219,8 +224,8 @@
 
   /* ---- slider: ink fill up to --p, white knob ---- */
   .range {
-    --track: 4px;
-    --thumb: 14px;
+    --track: 3px;
+    --thumb: 12px;
     -webkit-appearance: none;
     appearance: none;
     display: block;
@@ -273,8 +278,9 @@
       0 0 0 1px rgb(9 9 11 / 0.18),
       0 1px 3px rgb(9 9 11 / 0.2);
   }
+  .range:hover::-webkit-slider-thumb,
   .range:active::-webkit-slider-thumb {
-    transform: scale(1.1);
+    transform: scale(1.25);
   }
   .range:focus-visible {
     outline: none;
@@ -348,6 +354,16 @@
     font-family: var(--font-mono);
     font-size: 11px;
     opacity: 0.6;
+  }
+
+  /* ---- a view arriving (Preview ⇄ Mockup): a short fade, so the swap reads as one place changing ---- */
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  .fade-in {
+    animation: fade-in 200ms var(--ease-out);
   }
 
   /* ---- popover (native [popover]: top layer, light dismiss and Escape for free), placed under its trigger ---- */

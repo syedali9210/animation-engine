@@ -136,7 +136,7 @@ export function Segmented<T extends string | number>({
       ? `h-6 text-caption ${iconOnly ? "w-7" : "px-2"}`
       : size === "lg"
         ? `h-9 text-ui ${iconOnly ? "w-11" : "px-3.5"}`
-        : `h-7 text-body ${iconOnly ? "w-8" : "px-2.5"}`;
+        : `h-7 text-body pointer-coarse:h-9 ${iconOnly ? "w-8 pointer-coarse:w-10" : "px-2.5"}`;
   return (
     <div
       role="radiogroup"
@@ -255,7 +255,7 @@ export function IconButton({
   /** the id of the popover this button opens */
   popover?: string;
 }) {
-  const box = size === "sm" ? "h-7 w-7 rounded-md" : size === "lg" ? "h-10 w-10 rounded-lg" : "h-8 w-8 rounded-md";
+  const box = size === "sm" ? "h-7 w-7 rounded-md" : size === "lg" ? "h-10 w-10 rounded-lg" : "h-8 w-8 rounded-md pointer-coarse:h-10 pointer-coarse:w-10";
   return (
     <Tip label={label} kbd={kbd} side={tipSide} align={tipAlign}>
       <button
@@ -300,7 +300,7 @@ export function Button({
   popover?: string;
   label?: string;
 }) {
-  const sizing = size === "sm" ? "h-7 gap-1.5 rounded-md px-2.5 text-caption" : size === "lg" ? "h-10 gap-2 rounded-lg px-4 text-ui" : "h-8 gap-1.5 rounded-md px-3 text-body";
+  const sizing = size === "sm" ? "h-7 gap-1.5 rounded-md px-2.5 text-caption" : size === "lg" ? "h-10 gap-2 rounded-lg px-4 text-ui" : "h-8 gap-1.5 rounded-md px-3 text-body pointer-coarse:h-10 pointer-coarse:px-4";
   return (
     <button
       type="button"

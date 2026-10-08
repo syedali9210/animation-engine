@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { MagnifyingGlass, Plus, Stack, X } from "@phosphor-icons/react";
-import { ANIMS, CATEGORIES, type AnimMeta, type Values } from "./registry";
-import { CATEGORY_ICON, IconButton, Kbd, Logo } from "./ui";
+import { ANIMS, CATEGORIES, type AnimMeta, type Category, type Values } from "./registry";
+import { CATEGORY_ICON, IconButton, Kbd, Logo, rove } from "./ui";
 
 /** The library: every animation as a card with its still; hovering one plays it live. The screen you're building
     sits on top, like an inbox above the projects. */
@@ -20,6 +20,7 @@ export default function Library({
   dark,
   previewSrc,
   footer,
+  bare,
 }: {
   id: string;
   /** open an animation */
@@ -41,8 +42,11 @@ export default function Library({
   dark: boolean;
   previewSrc: (a: AnimMeta) => string;
   footer: ReactNode;
+  /** inside a panel that has its own header: no logo row */
+  bare?: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const [cat, setCat] = useState<Category | "All">("All");
   const current = useRef<HTMLButtonElement>(null);
   // keep the animation you're looking at in view: on open, and when [ ] steps through the list
   useEffect(() => {
@@ -52,23 +56,28 @@ export default function Library({
   }, [visible, id]);
   const q = query.trim().toLowerCase();
   const list = ANIMS.filter((a) => !q || [a.name, a.blurb, a.category, ...a.tech].join(" ").toLowerCase().includes(q));
-  const groups = CATEGORIES.map((c) => [c, list.filter((a) => a.category === c)] as const).filter(([, l]) => l.length);
+  const groups = CATEGORIES.filter((c) => cat === "All" || c === cat)
+    .map((c) => [c, list.filter((a) => a.category === c)] as const)
+    .filter(([, l]) => l.length);
+  const cats = ["All", ...CATEGORIES] as const;
   const edited = (a: AnimMeta) => Object.entries(overrides[a.id] ?? {}).some(([k, v]) => v !== a.params[k]);
 
   return (
     <div className="flex h-full flex-col bg-surface">
-      <div className="flex h-12 shrink-0 items-center gap-2.5 pl-4 pr-2">
-        <Logo size={20} />
-        <h1 className="text-body font-semibold tracking-[-0.01em]">Animation Engine</h1>
-        {onClose && (
-          <span className="ml-auto">
-            <IconButton label="Close library" size="lg" onClick={onClose}>
-              <X size={18} />
-            </IconButton>
-          </span>
-        )}
-      </div>
-      <div className="space-y-1 px-3 pb-3">
+      {!bare && (
+        <div className="flex h-12 shrink-0 items-center gap-2.5 pl-4 pr-2">
+          <Logo size={20} />
+          <h1 className="text-body font-semibold tracking-[-0.01em]">Animation Engine</h1>
+          {onClose && (
+            <span className="ml-auto">
+              <IconButton label="Close library" size="lg" onClick={onClose}>
+                <X size={18} />
+              </IconButton>
+            </span>
+          )}
+        </div>
+      )}
+      <div className={`space-y-1 px-3 pb-3 ${bare ? "pt-3" : ""}`}>
         <label className="flex h-8 items-center gap-2 rounded-md bg-surface px-2.5 text-fg-3 shadow-[inset_0_0_0_1px_var(--line-strong)] focus-within:shadow-[inset_0_0_0_1px_var(--fg)] dark:bg-surface-2">
           <MagnifyingGlass size={15} aria-hidden className="shrink-0" />
           <input
@@ -103,16 +112,39 @@ export default function Library({
         </button>
       </div>
       <nav aria-label="Animations" className="scroll-thin min-h-0 flex-1 overflow-y-auto border-t px-3 pb-6">
+        {/* narrows the grid to one group; stays put while the grid scrolls */}
+        <div className="sticky top-0 z-10 -mx-3 bg-surface pb-1 pt-3">
+          <div
+            role="radiogroup"
+            aria-label="Show"
+            onKeyDown={(e) => rove(e, [...cats], cat, setCat, "radio")}
+            className="no-scrollbar flex gap-1 overflow-x-auto px-3 [mask-image:linear-gradient(to_right,#000_calc(100%-20px),transparent)]"
+          >
+            {cats.map((c) => (
+              <button
+                key={c}
+                type="button"
+                role="radio"
+                aria-checked={cat === c}
+                tabIndex={cat === c ? 0 : -1}
+                onClick={() => setCat(c)}
+                className={`press h-7 shrink-0 rounded-full px-2.5 text-caption font-medium pointer-coarse:h-9 pointer-coarse:px-3.5 ${cat === c ? "bg-fg text-surface" : "text-fg-2 shadow-[inset_0_0_0_1px_var(--line-strong)] hover:text-fg"}`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
         {groups.map(([c, items]) => {
           const CatIcon = CATEGORY_ICON[c];
           return (
             <section key={c} aria-label={c}>
-              <h2 className="flex items-center gap-1.5 px-0.5 pb-2.5 pt-5 text-caption font-medium text-fg-3">
+              <h2 className="flex items-center gap-1.5 px-0.5 pb-2.5 pt-4 text-caption font-medium text-fg-3">
                 <CatIcon size={14} aria-hidden />
                 {c}
                 <span className="ml-auto tabular-nums">{items.length}</span>
               </h2>
-              <ul className="grid grid-cols-2 gap-x-2 gap-y-3.5">
+              <ul className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-x-2 gap-y-3.5">
                 {items.map((a) => (
                   <Card
                     key={a.id}
@@ -132,7 +164,20 @@ export default function Library({
             </section>
           );
         })}
-        {!groups.length && <p className="px-3 py-10 text-center text-body text-fg-3">Nothing matches “{query}”.</p>}
+        {!groups.length && (
+          <p className="px-3 py-10 text-center text-body text-fg-3">
+            {query ? `Nothing matches “${query}”` : "Nothing here yet"}
+            {cat !== "All" && (
+              <>
+                {" in "}
+                {cat}.{" "}
+                <button type="button" onClick={() => setCat("All")} className="font-medium text-fg underline decoration-fg-3 underline-offset-4">
+                  Search everything
+                </button>
+              </>
+            )}
+          </p>
+        )}
       </nav>
       <div className="flex h-11 shrink-0 items-center gap-0.5 border-t px-2">
         {footer}

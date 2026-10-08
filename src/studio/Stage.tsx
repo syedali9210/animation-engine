@@ -12,8 +12,8 @@ import { ScreenShell } from "./shell"
 import { backdropCss, finishOf, shotPose, sizeOf, type Shot } from "./shot"
 import { CHECKER } from "./Studio"
 
-const PAD = 32
-const DOCK = 72
+const fine = typeof matchMedia !== "undefined" && matchMedia("(hover: hover) and (pointer: fine)").matches
+const clampZoom = (z: number) => Math.min(3, Math.max(0.35, z))
 
 export default function StudioStage({
   d,
@@ -26,6 +26,7 @@ export default function StudioStage({
   setShot,
   playing,
   setPlaying,
+  compact,
   children,
 }: {
   d: Device
@@ -38,8 +39,12 @@ export default function StudioStage({
   setShot: (patch: Partial<Shot>) => void
   playing: boolean
   setPlaying: (on: boolean) => void
+  /** phones and short windows: tighter margins */
+  compact?: boolean
   children: ReactNode
 }) {
+  const PAD = compact ? 12 : 32
+  const DOCK = compact ? 64 : 72
   const area = useRef<HTMLDivElement>(null)
   const host = useRef<HTMLDivElement>(null)
   const [scene, setScene] = useState<StudioScene | null>(null)
@@ -65,7 +70,7 @@ export default function StudioStage({
   // Paused, the view holds a moment of the move (null: the shot itself, which is what dragging edits). Playing, it
   // runs from that moment on. A drag in progress lives here too, so the engine doesn't re-render on every move.
   const [scrub, setScrub] = useState<number | null>(null)
-  const drag = useRef({ yaw: 0, elev: 0 })
+  const drag = useRef({ yaw: 0, elev: 0, zoom: 1 })
   const live = useRef({ shot, d, playing, scrub })
   live.current = { shot, d, playing, scrub }
   const scrubber = useRef<HTMLInputElement>(null)
@@ -84,7 +89,7 @@ export default function StudioStage({
     frameReq.current = requestAnimationFrame(() => {
       frameReq.current = 0
       const { shot: s, d: dev, playing: on, scrub: at } = live.current
-      const base = shotPose({ ...s, yaw: s.yaw + drag.current.yaw, elev: s.elev + drag.current.elev }, dev.id)
+      const base = shotPose({ ...s, yaw: s.yaw + drag.current.yaw, elev: s.elev + drag.current.elev, zoom: clampZoom(s.zoom * drag.current.zoom) }, dev.id)
       const t = on ? ((performance.now() - t0.current) / 1000) % s.duration : (at ?? 0)
       scene.setPose(on || at !== null ? move(s.motion, base, t, s.duration) : base)
       scene.render()
@@ -127,24 +132,62 @@ export default function StudioStage({
     setPlaying(false)
   }
 
-  // drag turns it (left/right) and raises or lowers the camera; scroll zooms; double-click resets
+  // the first visit says how to move the camera, until it has been moved once
+  const [hint, setHint] = useState(() => {
+    try {
+      return !localStorage.getItem("anim-engine:orbited")
+    } catch {
+      return false
+    }
+  })
+  const learned = () => {
+    if (!hint) return
+    setHint(false)
+    try {
+      localStorage.setItem("anim-engine:orbited", "1")
+    } catch {
+      /* private mode: the hint just comes back next time */
+    }
+  }
+
+  // one finger or the mouse turns it (left/right) and raises or lowers the camera; two fingers or the wheel zoom;
+  // double-click resets
+  const fingers = useRef(new Map<number, { x: number; y: number }>())
   const start = useRef<{ x: number; y: number } | null>(null)
+  const pinch = useRef(0) // the fingers' distance when the pinch began
+  const spread = () => {
+    const [a, b] = [...fingers.current.values()]
+    return Math.hypot(a.x - b.x, a.y - b.y)
+  }
   const onDown = (e: PointerEvent) => {
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
-    start.current = { x: e.clientX, y: e.clientY }
+    fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (fingers.current.size === 2) {
+      start.current = null // a second finger turns a turn into a pinch
+      drag.current = { yaw: 0, elev: 0, zoom: 1 }
+      pinch.current = spread()
+    } else if (fingers.current.size === 1) start.current = { x: e.clientX, y: e.clientY }
   }
   const onMove = (e: PointerEvent) => {
-    if (!start.current) return
-    drag.current = { yaw: (e.clientX - start.current.x) * 0.3, elev: (e.clientY - start.current.y) * 0.2 }
+    if (!fingers.current.has(e.pointerId)) return
+    fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (fingers.current.size === 2 && pinch.current) drag.current.zoom = spread() / pinch.current
+    else if (start.current) drag.current = { yaw: (e.clientX - start.current.x) * 0.3, elev: (e.clientY - start.current.y) * 0.2, zoom: 1 }
+    else return
     draw()
   }
-  const onUp = () => {
-    if (!start.current) return
+  const onUp = (e: PointerEvent) => {
+    fingers.current.delete(e.pointerId)
+    if (fingers.current.size) return
     start.current = null
-    const { yaw, elev } = drag.current
-    drag.current = { yaw: 0, elev: 0 }
-    if (yaw || elev) setShot({ yaw: shot.yaw + yaw, elev: shot.elev + elev })
+    pinch.current = 0
+    const { yaw, elev, zoom } = drag.current
+    drag.current = { yaw: 0, elev: 0, zoom: 1 }
+    if (yaw || elev || zoom !== 1) {
+      setShot({ yaw: shot.yaw + yaw, elev: shot.elev + elev, zoom: clampZoom(shot.zoom * zoom) })
+      learned()
+    }
   }
   const bg = backdropCss(shot)
 
@@ -159,20 +202,28 @@ export default function StudioStage({
       {/* over the live screen too: in the studio the pointer moves the camera, it doesn't use the app */}
       <div
         aria-hidden
-        title="Drag to turn · scroll to zoom · double-click to reset"
+        title={fine ? "Drag to turn · scroll to zoom · double-click to reset" : undefined}
         className="absolute inset-x-0 top-0 cursor-grab touch-none active:cursor-grabbing"
         style={{ bottom: DOCK }}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={onUp}
-        onWheel={(e) => setShot({ zoom: Math.min(3, Math.max(0.35, shot.zoom * Math.exp(-e.deltaY * 0.0012))) })}
+        onWheel={(e) => {
+          setShot({ zoom: clampZoom(shot.zoom * Math.exp(-e.deltaY * 0.0012)) })
+          learned()
+        }}
         onDoubleClick={() => {
           setShot({ yaw: 0, elev: 0, zoom: 1 })
           setScrub(null)
         }}
       />
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-3">
+      {hint && fw > 0 && (
+        <div className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-6" style={{ top: (box.h - DOCK - fh) / 2 + 12 }}>
+          <p className="fade-in rounded-full bg-overlay px-3 py-1.5 text-caption text-fg-2 shadow-md">{fine ? "Drag to turn it · scroll to zoom · double-click to reset" : "Drag to turn it · pinch to zoom"}</p>
+        </div>
+      )}
+      <div className={`pointer-events-none absolute inset-x-0 z-10 flex justify-center px-3 ${compact ? "bottom-3" : "bottom-4"}`}>
         <div role="toolbar" aria-label="Move preview" className="pointer-events-auto flex w-[min(460px,100%)] items-center gap-2.5 rounded-xl bg-overlay p-1 pr-3.5 shadow-md">
           <IconButton label={playing ? "Pause" : "Play the move"} tipSide="top" tipAlign="start" onClick={() => (playing ? pause() : setPlaying(true))}>
             {playing ? <Pause size={16} weight="fill" /> : <Play size={16} weight="fill" />}

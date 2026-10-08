@@ -1,9 +1,9 @@
 // Mockup studio — the inspector and the Export popover while the mockup is open. The 3D stage itself is in Stage.tsx,
 // loaded only when the mockup opens (it brings three.js).
-import { type CSSProperties, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { ArrowCounterClockwise, BookOpen, DeviceMobile, DeviceTablet, DownloadSimple, FilmStrip, ImageSquare, Laptop, WarningCircle } from "@phosphor-icons/react"
 import type { Device, DeviceId, Posture } from "../devices"
-import { field } from "../controls"
+import { ChipTabs, SliderField, field } from "../controls"
 import { Button, Segmented, Switch, rove, type Icon } from "../ui"
 import { BACKDROPS, SIZES } from "./config"
 import { FINISHES } from "./finishes"
@@ -27,7 +27,7 @@ const swatch = (on: boolean) => (on ? "outline-[1.5px] outline-offset-2 outline-
 
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
   return (
-    <section aria-label={title} className="border-b px-4 pb-4 pt-3.5 last:border-b-0">
+    <section aria-label={title} className="break-inside-avoid border-b px-4 pb-4 pt-3.5 last:border-b-0 [.cols_&]:border-b-0">
       <h3 className="flex min-h-5 items-center justify-between pb-2 text-caption font-medium text-fg-3">
         {title}
         {aside && <span className="font-normal">{aside}</span>}
@@ -80,6 +80,7 @@ export function MockupPanel({
   setDevice,
   posture,
   setPosture,
+  cols,
 }: {
   d: Device
   shot: Shot
@@ -87,6 +88,8 @@ export function MockupPanel({
   setDevice: (id: DeviceId) => void
   posture: Posture
   setPosture: (p: Posture) => void
+  /** two columns, on a wide bottom panel */
+  cols?: boolean
 }) {
   const finish = finishOf(shot, d.id)
   const custom = !BACKDROPS.some((b) => b.id === shot.backdrop)
@@ -95,7 +98,7 @@ export function MockupPanel({
   const backdrop = BACKDROPS.find((b) => b.id === shot.backdrop)
   const motion = MOTIONS.find((m) => m.id === shot.motion)
   return (
-    <div>
+    <div className={cols ? "cols columns-2 gap-0 [column-rule:1px_solid_var(--line)]" : ""}>
       <Section title="Device">
         <div
           role="radiogroup"
@@ -199,26 +202,187 @@ export function MockupPanel({
         }
       >
         <Choices<AngleId> label="Angle" value={shot.angle} options={ANGLES} set={(a) => set({ angle: a, yaw: 0, elev: 0, zoom: 1 })} />
-        <Range label="Lens" unit="°" min={12} max={50} step={1} value={Math.round(lens)} set={(v) => set({ fov: v })} hint="Low is a long lens: flatter, closer to a product photo." />
-        <Range label="Zoom" unit="×" min={0.35} max={3} step={0.05} value={Number(shot.zoom.toFixed(2))} set={(v) => set({ zoom: v })} />
+        <div className="mt-2.5" />
+        <Range id="mk-lens" label="Lens" unit="°" min={12} max={50} step={1} value={Math.round(lens)} def={Math.round(shotPose({ ...shot, fov: null }, d.id).fov)} set={(v) => set({ fov: v })} hint="Low is a long lens: flatter, closer to a product photo." />
+        <Range id="mk-zoom" label="Zoom" unit="×" min={0.35} max={3} step={0.05} value={Number(shot.zoom.toFixed(2))} def={1} set={(v) => set({ zoom: v })} />
       </Section>
 
       <Section title="Motion">
         <Choices<MotionId> label="Move" value={shot.motion} options={MOTIONS} set={(m) => set({ motion: m })} />
         <p className="mt-2 line-clamp-2 min-h-8 text-caption text-fg-3">{motion?.hint}</p>
-        <Range label="Length" unit=" s" min={2} max={15} step={0.5} value={shot.duration} set={(v) => set({ duration: v })} />
+        <Range id="mk-length" label="Length" unit="s" min={2} max={15} step={0.5} value={shot.duration} def={6} set={(v) => set({ duration: v })} />
       </Section>
 
       <Section title="Light">
-        <div className="flex h-7 items-center justify-between gap-3">
+        <div className="flex h-8 items-center justify-between gap-3 pl-2.5">
           <label htmlFor="studio-shadow" className="text-body text-fg-2">
             Shadow
           </label>
           <Switch id="studio-shadow" on={shot.shadow} onChange={(v) => set({ shadow: v })} />
         </div>
-        <Range label="Glass reflections" unit="×" min={0} max={2} step={0.05} value={shot.reflections} set={(v) => set({ reflections: v })} />
+        <Range id="mk-reflections" label="Glass reflections" unit="×" min={0} max={2} step={0.05} value={shot.reflections} def={1} set={(v) => set({ reflections: v })} />
       </Section>
     </div>
+  )
+}
+
+/* ---------------- phones: one setting at a time ---------------- */
+
+const POSTURE_OPTIONS: { value: Posture; label: string }[] = [
+  { value: "folded", label: "Folded" },
+  { value: "half", label: "Half open" },
+  { value: "open", label: "Open" },
+]
+
+/** A row of named choices that scrolls sideways (angles, moves on a phone). */
+function ChoiceStrip<T extends string>({ label, value, options, set }: { label: string; value: T; options: { id: T; name: string; hint?: string }[]; set: (v: T) => void }) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      onKeyDown={(e) =>
+        rove(
+          e,
+          options.map((o) => o.id),
+          value,
+          set,
+          "radio",
+        )
+      }
+      className="no-scrollbar flex h-11 items-center gap-1.5 overflow-x-auto px-px"
+    >
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          role="radio"
+          aria-checked={o.id === value}
+          tabIndex={o.id === value ? 0 : -1}
+          onClick={() => set(o.id)}
+          className={`press h-10 shrink-0 rounded-md px-3.5 text-body font-medium ${ring(o.id === value)}`}
+        >
+          {o.name}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+type Tool = "frame" | "device" | "posture" | "finish" | "background" | "angle" | "zoom" | "lens" | "move" | "length" | "shadow" | "reflections"
+
+/** The mockup on a phone: the picked setting in one strip, the chips that pick it under that, Export at the end. */
+export function MockupBar({
+  d,
+  shot,
+  set,
+  setDevice,
+  posture,
+  setPosture,
+  exportButton,
+}: {
+  d: Device
+  shot: Shot
+  set: (patch: Partial<Shot>) => void
+  setDevice: (id: DeviceId) => void
+  posture: Posture
+  setPosture: (p: Posture) => void
+  exportButton: ReactNode
+}) {
+  const [tool, setTool] = useState<Tool>("frame")
+  const tools: { id: Tool; label: string; sep?: boolean }[] = [
+    { id: "frame", label: "Frame" },
+    { id: "device", label: "Device" },
+    ...(d.fold ? [{ id: "posture" as const, label: "Posture" }] : []),
+    { id: "finish", label: "Finish" },
+    { id: "background", label: "Background", sep: false },
+    { id: "angle", label: "Angle", sep: true },
+    { id: "zoom", label: "Zoom" },
+    { id: "lens", label: "Lens" },
+    { id: "move", label: "Move", sep: true },
+    { id: "length", label: "Length" },
+    { id: "shadow", label: "Shadow", sep: true },
+    { id: "reflections", label: "Reflections" },
+  ]
+  const k = tools.some((t) => t.id === tool) ? tool : "background"
+  const finish = finishOf(shot, d.id)
+  const custom = !BACKDROPS.some((b) => b.id === shot.backdrop)
+  const lensDef = Math.round(shotPose({ ...shot, fov: null }, d.id).fov)
+  let body: ReactNode
+  if (k === "frame")
+    body = <ChoiceStrip label="Frame" value={shot.size} options={SIZES.map((x) => ({ id: x.id, name: x.name, hint: x.hint }))} set={(v) => set({ size: v })} />
+  else if (k === "device")
+    body = <Segmented full label="Device" value={d.id} onChange={setDevice} options={DEVICE_TILES.map((t) => ({ value: t.id, label: t.label, icon: t.icon }))} />
+  else if (k === "posture") body = <Segmented full label="iPhone Duo posture" value={posture} onChange={setPosture} options={POSTURE_OPTIONS} />
+  else if (k === "finish")
+    body = (
+      <div className="flex h-11 items-center gap-3 px-1">
+        <div role="radiogroup" aria-label="Finish" className="flex gap-3">
+          {FINISHES[d.id].map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              role="radio"
+              aria-checked={f.id === finish.id}
+              aria-label={f.name}
+              onClick={() => set({ finish: { ...shot.finish, [d.id]: f.id } })}
+              className={`press h-8 w-8 rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.14)] ${swatch(f.id === finish.id)}`}
+              style={{ background: `radial-gradient(circle at 32% 28%, #ffffff70, transparent 46%), linear-gradient(145deg, ${f.metal}, ${f.back})` }}
+            />
+          ))}
+        </div>
+        <span className="ml-auto truncate text-body text-fg-2">{finish.name}</span>
+      </div>
+    )
+  else if (k === "background")
+    body = (
+      <div role="radiogroup" aria-label="Background" className="no-scrollbar flex h-11 items-center gap-2.5 overflow-x-auto px-1">
+        {BACKDROPS.map((b) => (
+          <button
+            key={b.id}
+            type="button"
+            role="radio"
+            aria-checked={shot.backdrop === b.id}
+            aria-label={b.name}
+            onClick={() => set({ backdrop: b.id })}
+            className={`press h-9 w-9 shrink-0 rounded-md shadow-[inset_0_0_0_1px_rgb(0_0_0/0.1)] ${swatch(shot.backdrop === b.id)}`}
+            style={{ background: b.id === "transparent" ? CHECKER : b.css }}
+          />
+        ))}
+        <label
+          className={`press relative h-9 w-9 shrink-0 cursor-pointer overflow-hidden rounded-md shadow-[inset_0_0_0_1px_rgb(0_0_0/0.1)] ${swatch(custom)}`}
+          style={{ background: custom ? shot.backdrop : "conic-gradient(from 90deg, #f43f5e, #f59e0b, #22c55e, #3b82f6, #a855f7, #f43f5e)" }}
+        >
+          <span className="sr-only">Your own colour</span>
+          <input type="color" value={custom ? shot.backdrop : "#e8e8ec"} onChange={(e) => set({ backdrop: e.target.value })} className="absolute inset-0 cursor-pointer opacity-0" />
+        </label>
+      </div>
+    )
+  else if (k === "angle") body = <ChoiceStrip<AngleId> label="Angle" value={shot.angle} options={ANGLES} set={(a) => set({ angle: a, yaw: 0, elev: 0, zoom: 1 })} />
+  else if (k === "move") body = <ChoiceStrip<MotionId> label="Move" value={shot.motion} options={MOTIONS} set={(m) => set({ motion: m })} />
+  else if (k === "zoom") body = <SliderField big id="mb-zoom" label="Zoom" unit="×" min={0.35} max={3} step={0.05} value={Number(shot.zoom.toFixed(2))} def={1} set={(v) => set({ zoom: v })} />
+  else if (k === "lens") body = <SliderField big id="mb-lens" label="Lens" unit="°" min={12} max={50} step={1} value={Math.round(shot.fov ?? lensDef)} def={lensDef} set={(v) => set({ fov: v })} />
+  else if (k === "length") body = <SliderField big id="mb-length" label="Length" unit="s" min={2} max={15} step={0.5} value={shot.duration} def={6} set={(v) => set({ duration: v })} />
+  else if (k === "reflections")
+    body = <SliderField big id="mb-reflections" label="Glass reflections" unit="×" min={0} max={2} step={0.05} value={shot.reflections} def={1} set={(v) => set({ reflections: v })} />
+  else
+    body = (
+      <div className="flex h-11 items-center justify-between gap-3 rounded-md bg-surface-2 pl-3 pr-2 shadow-[inset_0_0_0_1px_var(--line)]">
+        <label htmlFor="mb-shadow" className="text-ui text-fg-2">
+          Shadow under the device
+        </label>
+        <Switch id="mb-shadow" size="lg" on={shot.shadow} onChange={(v) => set({ shadow: v })} />
+      </div>
+    )
+  return (
+    <section aria-label="Mockup" className="shrink-0 border-t bg-surface pb-[env(safe-area-inset-bottom)]">
+      <div id="mockup-panel" role="tabpanel" aria-labelledby={`mockup-panel-chip-${k}`} className="px-3 pt-3">
+        {body}
+      </div>
+      <div className="flex items-center gap-2 py-2.5 pl-3">
+        <ChipTabs label="Mockup settings" items={tools} value={k} onChange={setTool} panel="mockup-panel" />
+        <span className="shrink-0 pr-2">{exportButton}</span>
+      </div>
+    </section>
   )
 }
 
@@ -307,29 +471,10 @@ function ExportStatus({ state }: { state: ExportState }) {
   )
 }
 
-function Range({ label, unit, min, max, step, value, set, hint }: { label: string; unit: string; min: number; max: number; step: number; value: number; set: (v: number) => void; hint?: string }) {
-  const pct = ((value - min) / (max - min)) * 100
+function Range({ id, label, unit, min, max, step, value, set, def, hint }: { id: string; label: string; unit: string; min: number; max: number; step: number; value: number; set: (v: number) => void; def?: number; hint?: string }) {
   return (
-    <div className="mt-3" title={hint}>
-      <div className="mb-1 flex items-center justify-between text-body">
-        <span className="text-fg-2">{label}</span>
-        <span className="tabular-nums text-fg-3">
-          {value}
-          {unit}
-        </span>
-      </div>
-      <input
-        type="range"
-        aria-label={label}
-        aria-valuetext={`${value}${unit}`}
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => set(Number(e.target.value))}
-        className="range"
-        style={{ "--p": `${Math.max(0, Math.min(100, pct))}%` } as CSSProperties}
-      />
+    <div className="mt-1.5">
+      <SliderField id={id} label={label} unit={unit} min={min} max={max} step={step} value={value} set={set} def={def} hint={hint} />
     </div>
   )
 }
