@@ -8,7 +8,7 @@
 //   POST /__studio/posters     { only?: id[] } -> { made }  the library cards' stills, into public/thumbs
 import { spawn, spawnSync, type ChildProcess } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { createReadStream, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -109,20 +109,21 @@ async function devtools(chrome: string, profile: string) {
     return r.result?.value
   }
   const close = async () => {
-    await send("Browser.close").catch(() => {})
+    // Chrome can quit without answering, and a close that never settles would hold the render queue forever
+    await Promise.race([send("Browser.close").catch(() => {}), sleep(2000)])
     ws.close()
     proc.kill()
   }
   return { send, evaluate, close, errors, proc }
 }
 
-async function render(job: Job, body: { config: { backdrop: string; duration: number }; width: number; height: number; scale: number; fps: number }, origin: string) {
+async function render(job: Job, body: { config: { transparent: boolean; duration: number }; width: number; height: number; scale: number; fps: number }, origin: string) {
   const chrome = findChrome()
   if (!chrome) throw new Error("Couldn't find Chrome or Edge to render with. Set STUDIO_CHROME to its path.")
   const video = job.kind === "video"
   const ff = video ? ffmpeg() : null
   if (video && !ff) throw new Error("Video export needs ffmpeg on your PATH (winget install ffmpeg, or brew install ffmpeg).")
-  const clear = body.config.backdrop === "transparent"
+  const clear = body.config.transparent
   const scale = Math.min(3, Math.max(1, body.scale || 1))
   const w = Math.round(body.width / scale)
   const h = Math.round(body.height / scale)
@@ -282,9 +283,13 @@ export function studio(): Plugin {
         mkdirSync(DIR, { recursive: true })
         const file = join(DIR, `media-${mid}`)
         writeFileSync(file, await readBody(req))
+        writeFileSync(`${file}.type`, type)
         media.set(mid, { file, type })
         return json(res, 200, { url: `/__studio/media/${mid}` })
       }
+      // a picture in a composition outlives the server: after a restart it's found on disk
+      if (what === "media" && id && !media.has(id) && /^[0-9a-f-]{36}$/.test(id) && existsSync(join(DIR, `media-${id}.type`)))
+        media.set(id, { file: join(DIR, `media-${id}`), type: readFileSync(join(DIR, `media-${id}.type`), "utf8") })
       if (what === "media" && id && media.has(id)) return sendFile(req, res, media.get(id)!.file, media.get(id)!.type)
       if (what === "posters" && req.method === "POST") {
         const body = JSON.parse((await readBody(req)).toString() || "{}") as { only?: string[] }
@@ -312,7 +317,7 @@ export function studio(): Plugin {
       }
       const job = id ? jobs.get(id) : undefined
       if (what === "jobs" && job && !extra) return json(res, 200, { state: job.state, frame: job.frame, total: job.total, error: job.error })
-      if (what === "jobs" && job && extra === "file" && job.state === "done" && job.file) return sendFile(req, res, job.file, job.type!, `mockup.${job.ext}`)
+      if (what === "jobs" && job && extra === "file" && job.state === "done" && job.file) return sendFile(req, res, job.file, job.type!, `studio.${job.ext}`)
       return json(res, 404, { error: "Not found" })
     } catch (e) {
       return json(res, 500, { error: (e as Error).message })

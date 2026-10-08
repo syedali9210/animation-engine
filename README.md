@@ -1,6 +1,6 @@
 # Animation Engine
 
-Every animation from your Desktop projects in one place — tune it live, watch it inside exact iPhone / iPad / MacBook frames, turn it into a 3D product mockup (still or video) for a portfolio or a post, see what it costs each device's GPU, and export the tuned code.
+Every animation from your Desktop projects in one place — tune it live, watch it inside exact iPhone / iPad / MacBook frames, compose it into a cinematic 3D product film or still (several devices, components beside them, titles, scenes and transitions) for a portfolio or a post, see what it costs each device's GPU, and export the tuned code.
 
 ```bash
 npm install
@@ -17,7 +17,7 @@ npm run build
 | Shaders & GPU | Coins & Notes, Napkin Note, vgpu Detail Maps | `experiment animation/motiscope-output/{webgl,cloth}`, `webgl/vgpu/detail.wgsl` |
 | Characters | Hello, Maze Walk | `portfolio v2/public/scripts/pet-buddy.js`, `animations/…/pet-buddy-hero` |
 | Chat & AI | Chat Quiz, Thinking Cube | `portfolio v2/…/chat-quiz`, `card animation/…/thinking-cube` |
-| Cards & Reveals | Info Notch Card, Scratch Card | `animations/src/animations/…` |
+| Cards & Reveals | Info Notch Card, Scratch Card, Scroll Dissolve Reveal | `animations/src/animations/…`; Scroll Dissolve Reveal is [VengeanceUI](https://github.com/Ashutoshx7/VengeanceUI)'s, as published |
 | Navigation | Tab Hop, Nav Scrubber | `animations/src/animations/…` |
 | Celebration | Payment Success | `animation/src/components/PaymentSuccessScene.tsx` |
 | UI Patterns | Bottom Sheet, Modal, Side Drawer, Toast Stack, Popover Menu | built here, on skeleton loading screens |
@@ -32,20 +32,29 @@ npm run build
 - **Native DPR** makes canvases render at the device's pixel ratio, so fill-rate cost is the device's.
 - **Theme** switches the engine and the animations between dark and light, live: the animation inside every device re-themes without reloading. It follows the system until you pick one.
 
-## Mockups
+## Studio
 
-Switch the stage from **Preview** to **Mockup** and the device becomes a real 3D object under studio light, with the live animation on its glass (iPhone 16 Pro, iPhone Duo folded / half open / open, iPad Pro 11″, MacBook Pro 14″, each in Apple's finishes). Pick an angle or drag the device to turn it (scroll zooms, double-click resets), choose a background (studio sweeps, dark graphite and onyx, soft colour fields, or transparent), and a move for video: Reveal, Spin in (from the back round to the screen), Orbit, Sway, Push in, Rise or Tour (three angles in one take). The transport under the stage plays or scrubs the move.
+Switch the stage from **Preview** to **Studio** to make a composition: scenes played one after another, each made of layers, over one background. Layers on the left, the stage and its timeline in the middle, the picked thing's settings on the right.
 
-**Export** renders the exact shot in headless Chrome on the dev server: a PNG (a transparent background gives alpha), or a video stepped frame by frame so nothing drops (H.264 MP4, or ProRes 4444 with alpha over a transparent background) at 16:9 (1080p or 4K), 4:3, 1:1, 4:5 or 9:16, 30 or 60 fps. Needs Chrome or Edge, and ffmpeg for video (`STUDIO_CHROME` / `STUDIO_FFMPEG` point at them if they aren't found).
+- **Devices, matched** — up to three devices per scene: a primary in the middle and one either side (pick them in the scene's *Devices*, or drag a device chip onto a place or onto the stage). Each stands at its real size against the primary, the side ones turned in and the smaller ones a step forward, all under one camera, so scale, distance and perspective agree. iPhone 16 Pro, iPhone Duo (folded / half open / open), iPad Pro 11″, MacBook Pro 14″, each in Apple's finishes, each screen live: whatever's open in the engine, any animation from the library, or a picture.
+- **Components beside them** — add any animation as a component outside a device. With devices in the scene they move to one side and the component takes the other (*Devices sit* left, middle or right flips the layout). Drag a component, picture or title on the stage to move it; its corner resizes it.
+- **Pictures and titles** — drop an image on the page (or *Add → Picture*) and it becomes a layer; titles in Geist. Each comes in its own way: rise, fade, scale or blur in.
+- **Hairline** — any device screen, component or picture can be redrawn as thin ink lines (edges of its brightness, in the Hairline figures' palette). In Preview, `H` (or the pen in the dock) does it to the animation itself.
+- **Scenes** — each has a length, a camera (angle, lens, zoom; drag the stage to turn it, scroll or pinch to zoom), a move (Reveal, Spin in, Hero turn, Pull back, Orbit, Sway, Push in, Rise, Tour) and how its devices arrive (in place, drop in, slide in), plus a transition in: cut, dissolve, dip, push, zoom or blur. *+* adds the next shot with the same devices and camera.
+- **Templates** — Hero shot, Device + component, Family (MacBook with iPad and iPhone), Keynote reveal (three scenes on black), Launch film (title, reveal, feature, family, end card) and Social 9:16, built from what's open. *Undo* puts back what you had.
+- **Background** — studio sweeps, colour fields, transparent, or any colour (the eyedropper picks one off the screen in Chrome and Edge; swatches drag onto the stage), plus one effect over it: glow, dots, grid, lines, grain or dither, with its amount and colour. Light: Studio, Keynote (a dark room, bright rims) or Soft.
+- **Layers** — scenes and their layers front first; the dot marks what's animated, the eye hides a layer, drag (or `Alt ↑↓`) reorders, ⋯ duplicates, moves or deletes; `Delete` removes the picked layer.
+
+**Export** renders the composition in headless Chrome on the dev server: an image of the picked scene (settled, camera as set; a transparent background gives alpha), or a video of every scene stepped frame by frame so nothing drops (H.264 MP4, or ProRes 4444 with alpha over a transparent background) at 16:9 (1080p or 4K), 4:3, 1:1, 4:5 or 9:16, 30 or 60 fps. Needs Chrome or Edge, and ffmpeg for video (`STUDIO_CHROME` / `STUDIO_FFMPEG` point at them if they aren't found). Pictures are kept by the dev server, so they survive a reload.
 
 ## The app
 
-- **Desktop / laptop / tablet landscape** — library · stage · inspector. The library is a grid of cards with a still of each animation (hover one to play it live) and category chips; the stage has a floating dock for device, rotation, reduced motion, replay and the frame rate; the inspector shows only the properties. Performance and checks open from the frame-rate chip, code export (and the way to a mockup) from **Export**. Below 1120px wide the library becomes a drawer you open from the title.
-- **Tablets held upright** — the stage gets the full width; a panel under it switches between the properties (or the mockup's settings), in two columns, and the library. Collapse it for a bigger preview. Controls grow to finger size on touch screens.
-- **Phones** — one top bar (the title opens the library, Preview / Mockup, ⋯), device controls in a pill over the stage, and one property at a time in a 44pt row with a scrolling row of chips under it; the full list opens as a swipe-to-dismiss sheet. The mockup works on phones too, one setting at a time, Frame first. Landscape phones get the side-panel layout.
+- **Desktop / laptop / tablet landscape** — library · stage · inspector. The library is a grid of cards with a still of each animation (hover one to play it live) and category chips; the stage has a floating dock for device, rotation, reduced motion, replay and the frame rate; the inspector shows only the properties. Performance and checks open from the frame-rate chip, code export (and the way to the studio) from **Export**. Below 1120px wide the library becomes a drawer you open from the title. In the studio the left column is the layers, and the library is a drawer at every size.
+- **Tablets held upright** — the stage gets the full width; a sheet under it (its handle collapses it for a bigger preview) switches between the properties, in two columns, and the library. In the studio it holds the layers and the picked thing's settings side by side. Controls grow to finger size on touch screens.
+- **Phones** — one top bar (the title opens the library, Preview / Studio, ⋯), device controls in a pill over the stage, and one property at a time in a 44pt row with a scrolling row of chips under it; the handle (tap or swipe it up) or *All* opens every property in a swipe-to-dismiss sheet. In the studio four labelled buttons under the stage open Layers, Edit, Background and Export as sheets. Landscape phones get the side-panel layout.
 - **Sliders** — the whole field is the slider: drag anywhere on it, click the number (or just type) to enter a value, arrow keys step it (Shift for ×10), double-click or Backspace resets it.
 - **Links** — `/#bottom-sheet` opens straight to an animation.
-- **Keyboard** — `/` or `Ctrl/⌘ K` search, `[` `]` previous / next, `1`–`5` devices, `P` preview / mockup, `F` fold, `L` rotate, `R` replay, `M` reduced motion, `T` theme, `?` all shortcuts; in the screen builder the arrow keys nudge the picked layer and `Delete` removes it. Single-key shortcuts can be turned off in that dialog.
+- **Keyboard** — `/` or `Ctrl/⌘ K` search, `[` `]` previous / next, `1`–`5` devices, `P` preview / studio, `F` fold, `L` rotate, `R` replay, `M` reduced motion, `H` hairline, `T` theme, `?` all shortcuts; in the screen builder the arrow keys nudge the picked layer and `Delete` removes it. Single-key shortcuts can be turned off in that dialog.
 - **Accessibility** — every text colour passes WCAG AA in both themes; segmented controls are real radio groups with arrow-key navigation; dialogs are native `<dialog>` and menus native popovers (Escape and click-away close them); tooltips also show on keyboard focus; the UI respects reduced motion.
 
 ## GPU & perf

@@ -43,12 +43,14 @@ export function angle(id: AngleId, device: DeviceId): Pose {
 
 /* ---------------- moves ---------------- */
 
-export type MotionId = "still" | "reveal" | "spin" | "orbit" | "sway" | "push" | "rise" | "tour"
+export type MotionId = "still" | "reveal" | "spin" | "turn" | "pull" | "orbit" | "sway" | "push" | "rise" | "tour"
 
 export const MOTIONS: { id: MotionId; name: string; hint: string; loops?: boolean }[] = [
   { id: "still", name: "Still", hint: "The device holds the shot; only the screen moves." },
   { id: "reveal", name: "Reveal", hint: "Turns in from the side and settles on the shot, then drifts slowly." },
   { id: "spin", name: "Spin in", hint: "Starts on its back and spins round to the screen, the way a keynote shows a new device." },
+  { id: "turn", name: "Hero turn", hint: "One slow, continuous turn past the shot, easing in and out, the camera drifting closer." },
+  { id: "pull", name: "Pull back", hint: "Starts close on the device and pulls back to the whole shot." },
   { id: "orbit", name: "Orbit", hint: "The camera sweeps from one side of the shot to the other." },
   { id: "sway", name: "Sway", hint: "A slow turn either side of the shot. Loops seamlessly.", loops: true },
   { id: "push", name: "Push in", hint: "The camera moves in towards the screen." },
@@ -81,6 +83,14 @@ export function move(id: MotionId, p: Pose, t: number, dur: number): Pose {
       const from = { ...p, yaw: p.yaw + 180, pitch: p.pitch + 6, zoom: p.zoom * 0.86, rise: p.rise - 0.03 }
       const at = mix(from, p, k)
       return { ...at, yaw: at.yaw + drift(t, len) }
+    }
+    case "turn": {
+      const k = sineInOut(u)
+      return { ...p, yaw: p.yaw - 22 + 34 * k, zoom: p.zoom * (1 + 0.1 * k) }
+    }
+    case "pull": {
+      const k = expoOut(clamp(t / Math.min(2.6, dur * 0.8)))
+      return { ...p, zoom: p.zoom * (2.1 - 1.1 * k), yaw: p.yaw + 10 * (1 - k), rise: p.rise - 0.08 * (1 - k) }
     }
     case "orbit":
       return { ...p, azim: p.azim - 28 + 56 * sineInOut(u) }

@@ -487,8 +487,28 @@ export function AdjustBar({ anim, values, setParam, onShowAll }: { anim: AnimMet
   const items = groups.flatMap(([, list], gi) => list.map(([key, spec], i) => ({ id: key, label: spec.label, edited: values[key] !== anim.params[key], sep: gi > 0 && i === 0 })));
 
   return (
-    <section aria-label="Adjust" className="shrink-0 border-t bg-surface pb-[env(safe-area-inset-bottom)]">
-      <div id="adjust-panel" role="tabpanel" aria-labelledby={`adjust-panel-chip-${k}`} className="px-3 pt-3">
+    <section aria-label="Adjust" className="shrink-0 rounded-t-2xl border-t bg-surface pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_30px_-18px_rgb(0_0_0/0.35)]">
+      {/* the handle says there's more under it: tap it, or swipe it up, for every property */}
+      <button
+        type="button"
+        aria-label={`All ${keys.length} properties`}
+        onClick={onShowAll}
+        onPointerDown={(e) => {
+          const y = e.clientY;
+          const el = e.currentTarget;
+          el.setPointerCapture(e.pointerId);
+          el.onpointermove = (m) => {
+            if (y - m.clientY < 24) return;
+            el.onpointermove = null;
+            onShowAll();
+          };
+          el.onpointerup = el.onpointercancel = () => (el.onpointermove = null);
+        }}
+        className="flex h-5 w-full touch-none items-end justify-center"
+      >
+        <span aria-hidden className="h-1 w-9 rounded-full bg-line-strong" />
+      </button>
+      <div id="adjust-panel" role="tabpanel" aria-labelledby={`adjust-panel-chip-${k}`} className="px-3 pt-2">
         {s.type === "number" ? (
           <Control k={k} s={s} value={value} def={def} set={set} big id={id} />
         ) : (
@@ -505,10 +525,15 @@ export function AdjustBar({ anim, values, setParam, onShowAll }: { anim: AnimMet
       </div>
       <div className="flex items-center gap-2 py-2.5 pl-3">
         <ChipTabs label="Properties" items={items} value={k} onChange={setActive} panel="adjust-panel" />
-        <span className="shrink-0 pr-2">
-          <IconButton label="All properties" size="lg" onClick={onShowAll}>
-            <SlidersHorizontal size={18} />
-          </IconButton>
+        <span className="shrink-0 pr-3">
+          <button
+            type="button"
+            onClick={onShowAll}
+            className="press flex h-10 items-center gap-1.5 rounded-lg px-3 text-body font-medium text-fg shadow-[inset_0_0_0_1px_var(--line-strong)] hover:bg-surface-2"
+          >
+            <SlidersHorizontal size={16} aria-hidden />
+            All {keys.length}
+          </button>
         </span>
       </div>
     </section>

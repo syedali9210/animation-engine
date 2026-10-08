@@ -437,7 +437,7 @@ export function Dialog({ open, onClose, label, className, children }: { open: bo
 }
 
 /* ---------- phone bottom sheet: non-modal, swipe or flick down to close (Emil: velocity, not distance) ---------- */
-export function Sheet({ open, onClose, title, actions, children }: { open: boolean; onClose: () => void; title: string; actions?: ReactNode; children: ReactNode }) {
+export function Sheet({ open, onClose, title, actions, half, children }: { open: boolean; onClose: () => void; title: string; actions?: ReactNode; /** leave the stage in view, to see edits land */ half?: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const drag = useRef<{ y: number; t: number; id: number } | null>(null);
   const titleId = useId();
@@ -486,7 +486,7 @@ export function Sheet({ open, onClose, title, actions, children }: { open: boole
         tabIndex={-1}
         data-open={open}
         inert={!open}
-        className="sheet absolute inset-x-0 bottom-0 z-40 flex h-[78%] flex-col rounded-t-[20px] bg-surface shadow-lg outline-none"
+        className={`sheet absolute inset-x-0 bottom-0 z-40 flex ${half ? "h-[58%]" : "h-[78%]"} flex-col rounded-t-[20px] bg-surface shadow-lg outline-none`}
       >
         <div
           className="shrink-0 cursor-grab touch-none select-none active:cursor-grabbing"

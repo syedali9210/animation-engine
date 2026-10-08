@@ -1,4 +1,4 @@
-// Mockup studio — the engine's side of an export: hand the dev server a job, follow it, download what it made.
+// Studio — the engine's side of an export: hand the dev server a job, follow it, download what it made.
 import { useRef, useState } from "react"
 import type { RenderConfig } from "./config"
 
@@ -52,7 +52,7 @@ export function useExport() {
         setState({ phase: "working", kind, label, done: s.frame, total: s.total })
       }
       // a transparent video comes back as ProRes 4444 with alpha
-      const ext = kind === "png" ? "png" : cfg.backdrop === "transparent" ? "mov" : "mp4"
+      const ext = kind === "png" ? "png" : cfg.transparent ? "mov" : "mp4"
       const file = `${name}.${ext}`
       const a = Object.assign(document.createElement("a"), { href: `/__studio/jobs/${id}/file`, download: file })
       document.body.appendChild(a)

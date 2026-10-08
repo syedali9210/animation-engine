@@ -474,6 +474,9 @@ function duo(m: Mats, posture: Posture, landscape: boolean, screenBg: string): B
 
 /* ---------------- entry ---------------- */
 
+/** How many of its own points make a millimetre, per device: the scale that stands them side by side at true size. */
+export const PT_PER_MM: Record<DeviceId, number> = { iphone: 6.04, duo: 6.04, ipad: 5.2, macbook: 5 }
+
 export function buildDevice(id: DeviceId, o: { posture: Posture; landscape: boolean; finish: Finish; screenBg: string }): Built {
   const m = materials(o.finish)
   if (id === "iphone") return iphone(m, o.landscape)

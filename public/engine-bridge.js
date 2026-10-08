@@ -131,12 +131,49 @@
         bare = !!d.on;
         for (const fn of bareHandlers) fn(bare);
       }
+      if (d.type === "hairline") setHairline(!!d.on);
     } catch (err) {
       post("error", { message: String((err && err.message) || err) });
     }
   });
   addEventListener("error", (e) => post("error", { message: e.message }));
   addEventListener("unhandledrejection", (e) => post("error", { message: String(e.reason && e.reason.message || e.reason) }));
+
+  /* ---------- 2b. hairline (?hl=1, or a "hairline" message) ----------
+     Redraws the page as thin ink lines, the Hairline figures' look: brightness, softened a touch so textures don't
+     turn to speckle, then its edges both ways round, as a line in the ink (#232327 on paper, #d0d6e0 at night) over
+     the page's own ground. Done here, inside the page, so it works for any frame, whatever its origin. */
+  let hairline = q.get("hl") === "1";
+  const HL_INK = { light: [0x23, 0x23, 0x27], dark: [0xd0, 0xd6, 0xe0] };
+  const hlFilter = (id, rgb) => {
+    const [r, g, b] = rgb.map((v) => (v / 255).toFixed(3));
+    const fn = (c) => `<feFunc${c} type="linear" slope="6.5" intercept="-0.2"/>`;
+    return `<filter id="${id}" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">` +
+      `<feColorMatrix type="matrix" values="0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0 0 0 1 0" result="lum"/>` +
+      `<feGaussianBlur in="lum" stdDeviation="1" result="soft"/>` +
+      `<feConvolveMatrix in="soft" order="3" kernelMatrix="-1 -1 -1 -1 8 -1 -1 -1 -1" preserveAlpha="true" result="up"/>` +
+      `<feConvolveMatrix in="soft" order="3" kernelMatrix="1 1 1 1 -8 1 1 1 1" preserveAlpha="true" result="down"/>` +
+      `<feComposite in="up" in2="down" operator="arithmetic" k2="1" k3="1" result="edges"/>` +
+      `<feComponentTransfer in="edges" result="lines">${fn("R")}${fn("G")}${fn("B")}</feComponentTransfer>` +
+      `<feColorMatrix in="lines" type="matrix" values="0 0 0 0 ${r}  0 0 0 0 ${g}  0 0 0 0 ${b}  0.34 0.33 0.33 0 0"/></filter>`;
+  };
+  const applyHairline = () => {
+    const body = document.body;
+    if (!body) return;
+    if (hairline && !document.getElementById("__hl-defs")) {
+      const holder = document.createElement("div");
+      holder.innerHTML = `<svg id="__hl-defs" aria-hidden="true" width="0" height="0" style="position:absolute;width:0;height:0"><defs>${hlFilter("__hl-light", HL_INK.light)}${hlFilter("__hl-dark", HL_INK.dark)}</defs></svg>`;
+      document.documentElement.appendChild(holder.firstChild);
+    }
+    body.style.filter = hairline ? `url(#__hl-${scheme})` : "";
+  };
+  const setHairline = (on) => {
+    hairline = on;
+    applyHairline();
+  };
+  themeHandlers.add(applyHairline); // the ink follows the theme
+  if (document.body) applyHairline();
+  else addEventListener("DOMContentLoaded", applyHairline);
 
   /* ---------- 3. measurement ---------- */
   if (!stepped) {

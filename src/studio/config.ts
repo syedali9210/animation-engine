@@ -1,32 +1,23 @@
-// Mockup studio — everything an export needs to redraw the studio's shot on its own: the device, the shot, the move,
-// and what's on the screen. The engine builds it; the render page (render.tsx) reads it from its URL.
-import type { CSSProperties } from "react"
-import type { DeviceId, Posture } from "../devices"
-import type { Values } from "../registry"
-import type { MotionId, Pose } from "./poses"
-
-/** One live frame on the screen: an animation, its tuned values, and (on a built screen) its box. */
-export type ScreenFrame = { fid: string; path: string; query: Record<string, string>; values: Values; box?: CSSProperties; bare: boolean }
+// Studio — everything an export needs to redraw the composition on its own: the composition, and every screen and
+// component in it already resolved by the engine (the export page can't see the engine's state). The engine builds
+// it; the render page (render.tsx) reads it from its URL.
+import type { Comp } from "./comp"
+import type { FrameSpec, ScreenSpec } from "./view"
 
 export type RenderConfig = {
-  device: DeviceId
-  posture: Posture
-  landscape: boolean
-  finish: string
-  pose: Pose
-  motion: MotionId
-  /** seconds */
-  duration: number
-  /** CSS background behind the device, or "transparent" */
-  backdrop: string
-  shadow: boolean
-  reflections: number
+  comp: Comp
   dark: boolean
-  screenBg: string
-  frames: ScreenFrame[]
-  media?: { url: string; video: boolean }
-  /** how long the screen has been running when the video starts, ms */
+  /** by device layer id */
+  screens: Record<string, ScreenSpec>
+  /** by "scene:layer" */
+  components: Record<string, FrameSpec>
+  /** seconds into the composition the capture starts at (a still is the one frame there) */
+  start: number
+  /** seconds the capture runs: the whole composition, or 0 for a still */
+  duration: number
+  /** how long every frame has been running when the capture starts, ms */
   preroll: number
+  transparent: boolean
 }
 
 export type Backdrop = { id: string; name: string; css: string; dark: boolean }

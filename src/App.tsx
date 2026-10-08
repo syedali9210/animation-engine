@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowCounterClockwise,
   BookOpen,
@@ -24,6 +24,8 @@ import {
   Keyboard,
   Laptop,
   Moon,
+  PaintBucket,
+  PenNib,
   PersonArmsSpread,
   Plus,
   SidebarSimple,
@@ -43,12 +45,16 @@ import { DropOutline, Ghost, LayerHandle, ScreenPanel, aggregate, layerBox, newL
 import { Button, Count, Dialog, IconButton, Kbd, MenuItem, Popover, Segmented, Sheet, Switch, closePopover, useMedia, type Icon } from "./ui";
 import { detectHost, suggest, type Suggestion } from "./suggest";
 import { downloadZip } from "./exporter";
-import type { RenderConfig } from "./studio/config";
+import { SIZES, type RenderConfig } from "./studio/config";
 import { serverMedia, useExport, type ExportKind } from "./studio/export";
-import { DEFAULT_SHOT, backdropCss, finishOf, shotPose, sizeOf, type Shot } from "./studio/shot";
-import { MockupBar, MockupExport, MockupPanel } from "./studio/Studio";
+import { StudioExport, StudioInspector, inspectorTitle } from "./studio/Studio";
+import { AnimPicker, BG, LayersPanel, TemplateDialog } from "./studio/Layers";
+import { addDevice, component as newComponent, defaultComp, devicesOf, scene as newScene, starts, text as newText, total, uid, type Comp, type Template } from "./studio/comp";
+import { isDark } from "./studio/look";
+import type { Sel } from "./studio/Stage";
+import type { FrameSpec, Resolve, ScreenSpec } from "./studio/view";
 
-// the 3D stage brings three.js, so it loads the first time the mockup opens
+// the 3D stage brings three.js, so it loads the first time the studio opens
 const StudioStage = lazy(() => import("./studio/Stage"));
 
 const store = {
@@ -72,7 +78,7 @@ const store = {
 type View = DeviceId | "compare";
 type Mode = "single" | "screen";
 type Drag = { anim: string; x: number; y: number; over: { device: string; cx: number; cy: number } | null };
-type PhoneSheet = "props" | "insights";
+type PhoneSheet = "props" | "insights" | "layers" | "edit" | "export";
 const fromHash = () => decodeURIComponent(location.hash.slice(1));
 
 // On a dev machine each device gets its own site (iphone.localhost, duo.localhost, …), so Chrome runs it in its own
@@ -104,16 +110,28 @@ const SHORTCUTS: [string, string[]][] = [
   ["Search from anywhere", [MOD, "K"]],
   ["Previous / next animation", ["[", "]"]],
   ["iPhone, iPhone Duo, iPad, MacBook, Compare", ["1", "2", "3", "4", "5"]],
-  ["Preview / Mockup", ["P"]],
+  ["Preview / Studio", ["P"]],
   ["Fold / unfold the iPhone Duo", ["F"]],
   ["Rotate", ["L"]],
   ["Replay", ["R"]],
   ["Emulate reduced motion", ["M"]],
+  ["Hairline: redraw as thin lines", ["H"]],
   ["Light / dark theme", ["T"]],
   ["Screen builder: move the picked layer", ["←", "→", "↑", "↓"]],
   ["Screen builder: remove the picked layer", ["Del"]],
   ["Show shortcuts", ["?"]],
 ];
+
+/** The studio's composition, kept between visits (a first visit starts from the old single-shot settings, if any). */
+const loadComp = (): Comp => {
+  const c = store.get<Comp | null>("comp", null);
+  if (c?.v === 2 && c.scenes?.length) return { ...c, scenes: c.scenes.map((s) => ({ ...s, layers: s.layers.filter((l) => l.kind !== "component" || byId(l.anim)) })) };
+  const v = store.get<string>("view", "iphone");
+  const old = store.get<{ size?: string; fps?: 30 | 60; backdrop?: string; shadow?: boolean; reflections?: number }>("shot", {});
+  const base = defaultComp(v === "compare" ? "iphone" : (v as DeviceId), store.get<Posture>("posture", "open"));
+  const phone = matchMedia("(max-width: 767.98px) and (orientation: portrait)").matches;
+  return { ...base, size: old.size ?? (phone ? "9x16" : base.size), fps: old.fps ?? base.fps, fill: old.backdrop ?? base.fill, shadow: old.shadow ?? base.shadow, reflections: old.reflections ?? base.reflections };
+};
 
 const loadScene = (): Scene => {
   const s = store.get<Scene>("scene", { layers: [], bg: "" });
@@ -161,14 +179,20 @@ export default function App() {
   const [fileDrag, setFileDrag] = useState(false);
   const screen = mode === "screen";
 
-  // Mockup: the device in 3D under studio light, with the live screen on it, exported as a still or a video
+  // Studio: a composition of scenes (devices in 3D with live screens, components, pictures, titles), exported as a
+  // still or a video
   const [studioOn, setStudio] = useState(() => store.get("studio", false));
-  const [shot, setShotState] = useState<Shot>(() => ({
-    ...DEFAULT_SHOT,
-    ...(matchMedia("(max-width: 767.98px) and (orientation: portrait)").matches ? { size: "9x16" } : {}),
-    ...store.get<Partial<Shot>>("shot", {}),
-  }));
-  const setShot = useCallback((patch: Partial<Shot>) => setShotState((x) => ({ ...x, ...patch })), []);
+  const [comp, setCompState] = useState<Comp>(loadComp);
+  const setComp = useCallback((fn: (c: Comp) => Comp) => setCompState(fn), []);
+  const [cselState, setCsel] = useState<Sel>({ scene: "" });
+  // the pick, always one that exists: a deleted scene falls back to the first
+  const csel: Sel = comp.scenes.some((s) => s.id === cselState.scene) ? cselState : { scene: comp.scenes[0].id, layer: cselState.layer === BG ? BG : undefined };
+  const cscene = comp.scenes.find((s) => s.id === csel.scene)!;
+  const [picker, setPicker] = useState<{ title: string; then: (id: string) => void } | null>(null);
+  const [templates, setTemplates] = useState(false);
+  const [undo, setUndo] = useState<{ label: string; run: () => void } | null>(null);
+  // Preview: the hairline treatment over the animation
+  const [hl, setHl] = useState(false);
   // the move previews on its own unless the system asks for less motion
   const [playing, setPlaying] = useState(() => !matchMedia("(prefers-reduced-motion: reduce)").matches);
   const exporter = useExport();
@@ -200,7 +224,15 @@ export default function App() {
   useEffect(() => store.set("keys", keys), [keys]);
   useEffect(() => store.set("panelOpen", panelOpen), [panelOpen]);
   useEffect(() => store.set("studio", studioOn), [studioOn]);
-  useEffect(() => store.set("shot", shot), [shot]);
+  useEffect(() => {
+    const t = setTimeout(() => store.set("comp", comp), 250);
+    return () => clearTimeout(t);
+  }, [comp]);
+  useEffect(() => {
+    if (!undo) return;
+    const t = setTimeout(() => setUndo(null), 15000);
+    return () => clearTimeout(t);
+  }, [undo]);
   useEffect(() => {
     const t = setTimeout(() => store.set("scene", scene), 250); // not on every pointer move
     return () => clearTimeout(t);
@@ -208,7 +240,7 @@ export default function App() {
   useEffect(() => {
     document.title = `${screen ? "Screen builder" : anim.name} · Animation Engine`;
   }, [anim, screen]);
-  // a mockup export says how it went even after its popover has closed
+  // a studio export says how it went even after its popover has closed
   const xs = exporter.state;
   useEffect(() => {
     if (xs.phase === "done") say(`Downloaded ${xs.file}`);
@@ -233,7 +265,7 @@ export default function App() {
     if (themePicked.current) store.set("dark", dark);
   }, [dark]);
 
-  // phones don't get Compare: four devices side by side would be thumbnails; the mockup frames one device
+  // phones don't get Compare: four devices side by side would be thumbnails
   const studio = studioOn;
   const shown: View = (phone || studio) && view === "compare" ? "iphone" : view;
   const devices = useMemo(() => (shown === "compare" ? DEVICES : DEVICES.filter((d) => d.id === shown)), [shown]);
@@ -306,8 +338,8 @@ export default function App() {
   // the src each frame said "ready" from: until the current document says it, there's nobody to talk to
   const ready = useRef(new WeakMap<HTMLIFrameElement, string>());
   const sent = useRef(new Map<string, string>()); // last params each frame got, so a drag doesn't re-send them
-  const live = useRef({ values, dark, scene, media });
-  live.current = { values, dark, scene, media };
+  const live = useRef({ values, dark, scene, media, hl });
+  live.current = { values, dark, scene, media, hl };
   const valuesOf = (fid: string): Values => {
     const lid = fid.split("~")[1];
     if (!lid) return live.current.values;
@@ -350,6 +382,7 @@ export default function App() {
         post(d.frame, el, { type: "theme", scheme: live.current.dark ? "dark" : "light" });
         sendParams(d.frame, el, true);
         sendBare(d.frame, el, true);
+        if (live.current.hl) post(d.frame, el, { type: "hairline", on: true });
       } else if (d.type === "perf") setPerf((p) => ({ ...p, [d.frame]: { ...d, history: [...(p[d.frame]?.history ?? []).slice(-47), d.fps] } }));
       else if (d.type === "error") setErrors((x) => ({ ...x, [d.frame]: d.message }));
       else if (d.type === "status") {
@@ -371,6 +404,7 @@ export default function App() {
   useEffect(() => frames.current.forEach((el, fid) => isReady(el) && sendBare(fid, el)), [scene, media]); // eslint-disable-line react-hooks/exhaustive-deps
   // theme switches live inside every device — no reload, the animation keeps playing
   useEffect(() => frames.current.forEach((el, fid) => isReady(el) && post(fid, el, { type: "theme", scheme: dark ? "dark" : "light" })), [dark]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => frames.current.forEach((el, fid) => isReady(el) && post(fid, el, { type: "hairline", on: hl })), [hl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reloadTimer = useRef(0);
   const setParam = (k: string, v: Value) => {
@@ -413,15 +447,16 @@ export default function App() {
 
   /* ---------- keyboard ---------- */
   const firstViewport = viewport(devices[0], landscape, posture);
-  const env = useRef({ wide, tablet, keys, screen, sel, vp: firstViewport, layers: scene.layers });
-  env.current = { wide, tablet, keys, screen, sel, vp: firstViewport, layers: scene.layers };
+  const env = useRef({ wide, tablet, keys, screen, sel, vp: firstViewport, layers: scene.layers, studio: studioOn, csel });
+  env.current = { wide, tablet, keys, screen, sel, vp: firstViewport, layers: scene.layers, studio: studioOn, csel };
   const stepRef = useRef(stepAnim);
   stepRef.current = stepAnim;
   const openLibrary = useCallback((focusSearch: boolean) => {
-    if (env.current.tablet) {
+    // the studio's left column is its layers, so there the library is a drawer at every size
+    if (env.current.tablet && !env.current.studio) {
       setPanel("library");
       setPanelOpen(true);
-    } else if (!env.current.wide) setLibOpen(true);
+    } else if (!env.current.wide || env.current.studio) setLibOpen(true);
     if (focusSearch) requestAnimationFrame(() => searchRef.current?.focus());
   }, []);
   useEffect(() => {
@@ -453,6 +488,14 @@ export default function App() {
         }
         if (e.key === "Escape") return setSel(null);
       }
+      // the studio's picked layer: Delete removes it
+      if (s.studio && s.csel.layer && s.csel.layer !== BG && (e.key === "Delete" || e.key === "Backspace") && !t?.closest('[role="dialog"], dialog, [popover]')) {
+        e.preventDefault();
+        const { scene: sid, layer: lid } = s.csel;
+        setComp((c) => ({ ...c, scenes: c.scenes.map((x) => (x.id === sid ? { ...x, layers: x.layers.filter((l) => l.id !== lid) } : x)) }));
+        setCsel({ scene: sid });
+        return;
+      }
       if (!s.keys) return;
       const map: Record<string, () => void> = {
         "1": () => setView("iphone"),
@@ -465,6 +508,7 @@ export default function App() {
         l: () => setLandscape((x) => !x),
         t: flipTheme,
         m: () => setReduce((x) => !x),
+        h: () => setHl((x) => !x),
         r: () => setReplay((x) => x + 1),
         "[": () => stepRef.current(-1),
         "]": () => stepRef.current(1),
@@ -479,7 +523,7 @@ export default function App() {
     };
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
-  }, [openLibrary, updateLayer]);
+  }, [openLibrary, updateLayer, setComp]);
 
   /* ---------- drag an animation out of the library onto a screen ---------- */
   // Listeners go on the moment the drag starts (not in an effect after the next render), so a quick release can't
@@ -685,36 +729,167 @@ export default function App() {
     </>
   );
 
-  /* ---------- mockup ---------- */
-  const studioDevice = devices[0];
-  /** Everything the export's own page needs to draw this exact shot by itself. A still is the shot itself (no move),
-      with the screen caught where its library card is: a moment chosen to look good. */
-  const renderConfig = async (d: Device, kind: ExportKind): Promise<RenderConfig> => ({
-    device: d.id,
-    posture,
-    landscape: landscape && d.rotates,
-    finish: finishOf(shot, d.id).id,
-    pose: shotPose(shot, d.id),
-    motion: kind === "png" ? "still" : shot.motion,
-    duration: shot.duration,
-    backdrop: backdropCss(shot),
-    shadow: shot.shadow,
-    reflections: shot.reflections,
-    dark,
-    screenBg: screenBgFor(),
-    frames: itemsFor(d).map(({ fid, a, l }) => ({
-      fid,
-      path: a.html ? htmlUrl(a) : "/stage.html",
-      query: { ...(a.html ? {} : { a: a.id }), ...(l ? { layer: "1" } : {}), ...(nativeDpr ? { dpr: String(d.dpr) } : {}) },
-      values: valuesOf(fid),
-      box: l ? layerBox(l) : undefined,
-      bare: !!l && (!!media || !!scene.bg || visible.indexOf(l) > 0),
-    })),
-    media: screen && media ? { url: await serverMedia(media.url), video: media.video } : undefined,
-    preroll: kind === "png" ? (screen ? 1800 : (anim.poster?.at ?? 1800)) : 0,
+  /* ---------- studio ---------- */
+  const scheme = (on: boolean) => (on ? "dark" : "light") as "dark" | "light";
+  const frameSpec = (a: AnimMeta, key: string, v: Values, d: Device | null, o: { box?: CSSProperties; bare: boolean; layer: boolean }, hairline: boolean, cs: "light" | "dark"): FrameSpec => ({
+    key,
+    path: a.html ? htmlUrl(a) : "/stage.html",
+    query: { ...(a.html ? {} : { a: a.id }), ...(o.layer ? { layer: "1" } : {}), ...(nativeDpr && d ? { dpr: String(d.dpr) } : {}) },
+    values: v,
+    box: o.box,
+    bare: o.bare,
+    hairline,
+    scheme: cs,
   });
-  const exportMockup = (kind: ExportKind) =>
-    exporter.run(kind, () => renderConfig(studioDevice, kind), sizeOf(shot), shot.fps, `${screen ? "screen" : anim.id}-${studioDevice.id}-${shot.angle}`);
+  /** What the composition's references mean right now: a "live" screen is whatever the engine has open. */
+  const studioResolve: Resolve = {
+    screen(content, d, key, hairline): ScreenSpec {
+      if (content.kind === "image") return { frames: [], bg: "#000", image: content.src };
+      if (content.kind === "anim") {
+        const a = byId(content.id);
+        return { frames: a ? [frameSpec(a, `${key}:${a.id}`, withDefaults(a, overrides[a.id]), d, { bare: false, layer: false }, hairline, scheme(dark))] : [], bg: SCREEN_BG(dark) };
+      }
+      return {
+        frames: itemsFor(d).map(({ fid, a, l }) =>
+          frameSpec(a, `${key}:${fid}`, valuesOf(fid), d, { box: l ? layerBox(l) : undefined, bare: !!l && (!!media || !!scene.bg || visible.indexOf(l) > 0), layer: !!l }, hairline, scheme(dark)),
+        ),
+        bg: screenBgFor(),
+        media: screen && media ? { url: media.url, video: media.video } : undefined,
+      };
+    },
+    // a component on its own: no stand-in app around it, the composition's background behind it
+    component: (aid, key, hairline, cs) => frameSpec(byId(aid)!, key, withDefaults(byId(aid)!, overrides[aid]), null, { bare: true, layer: true }, hairline, cs),
+    image: (src) => src,
+    dark,
+    stepped: false,
+    origin: location.origin,
+  };
+  const liveName = screen ? "the screen you're building" : anim.name;
+
+  /** Everything the export's own page needs to draw the composition by itself. A still is the picked scene, settled,
+      with its camera where it's set (no move), and its screens caught where their library card is. */
+  const renderConfig = async (kind: ExportKind): Promise<RenderConfig> => {
+    const screens: Record<string, ScreenSpec> = {};
+    const components: Record<string, FrameSpec> = {};
+    for (const s of comp.scenes)
+      for (const l of s.layers) {
+        if (l.hidden) continue;
+        if (l.kind === "device") {
+          const sp = studioResolve.screen(l.content, DEVICES.find((d) => d.id === l.device)!, l.id, !!l.hairline);
+          screens[l.id] = { ...sp, media: sp.media && { ...sp.media, url: await serverMedia(sp.media.url) } };
+        } else if (l.kind === "component") components[`${s.id}:${l.id}`] = studioResolve.component(l.anim, `${s.id}:${l.id}`, !!l.hairline, scheme(isDark(comp.fill)));
+      }
+    const still = kind === "png";
+    const i = comp.scenes.indexOf(cscene);
+    const start = still ? starts(comp)[i] + Math.min(1.8, cscene.duration * 0.6) : 0;
+    return {
+      comp: still ? { ...comp, scenes: comp.scenes.map((s) => ({ ...s, move: "still", arrival: "none" })) } : comp,
+      dark,
+      screens,
+      components,
+      start,
+      duration: still ? 0 : total(comp),
+      preroll: still ? Math.max(0, (screen ? 1800 : (anim.poster?.at ?? 1800)) - start * 1000) : 0,
+      transparent: comp.fill === "transparent",
+    };
+  };
+  const slug = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "scene";
+  const exportComp = (kind: ExportKind) =>
+    exporter.run(kind, () => renderConfig(kind), SIZES.find((x) => x.id === comp.size) ?? SIZES[0], comp.fps, `${screen ? "screen" : anim.id}-${kind === "png" ? slug(cscene.name) : "film"}`);
+  const studioExport = <StudioExport comp={comp} set={(p) => setComp((c) => ({ ...c, ...p }))} scene={cscene} exporting={exporter.state} onExport={exportComp} />;
+
+  /* adding to the composition */
+  const imageInput = useRef<HTMLInputElement>(null);
+  const imageThen = useRef<(src: string, file: string, aspect: number) => void>(() => {});
+  const pickAnim = (title: string, then: (aid: string) => void) => setPicker({ title, then });
+  const pickImage = (then: (src: string, file: string, aspect: number) => void) => {
+    imageThen.current = then;
+    imageInput.current?.click();
+  };
+  /** A picture goes to the dev server, so it outlives a reload and the export can load it too. */
+  const takeImage = async (f: File) => {
+    const blob = URL.createObjectURL(f);
+    const aspect = await new Promise<number>((r) => {
+      const img = new Image();
+      img.onload = () => r(img.naturalWidth / img.naturalHeight || 1);
+      img.onerror = () => r(1);
+      img.src = blob;
+    });
+    let src = blob;
+    try {
+      src = await serverMedia(blob);
+    } catch {
+      say("The picture lasts until you reload: run the engine with npm run dev to keep it");
+    }
+    imageThen.current(src, f.name, aspect);
+  };
+  const putLayer = (l: Comp["scenes"][number]["layers"][number], patch?: Partial<Comp["scenes"][number]>) => {
+    setComp((c) => ({ ...c, scenes: c.scenes.map((s) => (s.id === cscene.id ? { ...s, ...patch, layers: [...s.layers, l] } : s)) }));
+    setCsel({ scene: cscene.id, layer: l.id });
+  };
+  const addImageLayer = (src: string, file: string, aspect: number) =>
+    putLayer({ id: uid(), kind: "image", src, file, aspect, box: { x: 0.5, y: 0.5, w: aspect > 1 ? 0.42 : 0.26 }, radius: 1.2, enter: "rise" });
+  const addToComp = (kind: "scene" | "device" | "component" | "image" | "text", d?: DeviceId) => {
+    const s = cscene;
+    if (kind === "scene") {
+      // the next shot keeps the devices and the camera, so it reads as the same story moving on
+      const next = newScene(
+        `Scene ${comp.scenes.length + 1}`,
+        s.layers.filter((l) => l.kind === "device").map((l) => ({ ...l, id: uid() })),
+        { camera: { ...s.camera }, frame: s.frame, transition: "dissolve" },
+      );
+      setComp((c) => {
+        const i = c.scenes.findIndex((x) => x.id === s.id);
+        return { ...c, scenes: [...c.scenes.slice(0, i + 1), next, ...c.scenes.slice(i + 1)] };
+      });
+      setCsel({ scene: next.id });
+    } else if (kind === "device" && d) {
+      const next = addDevice(s, d);
+      if (!next) return say("Every place in this scene has a device: change one in the scene's Devices");
+      setComp((c) => ({ ...c, scenes: c.scenes.map((x) => (x.id === s.id ? next : x)) }));
+      setCsel({ scene: s.id, layer: next.layers.find((l) => !s.layers.includes(l))!.id });
+    } else if (kind === "component")
+      pickAnim("Add a component", (aid) => {
+        // beside the devices: they move over to one side, the component takes the other
+        const devs = devicesOf(s).length > 0;
+        const frame = devs && s.frame === "center" ? "left" : s.frame;
+        putLayer(newComponent(aid, devs ? { x: frame === "right" ? 0.28 : 0.72, y: 0.5, w: 0.3 } : { x: 0.5, y: 0.5, w: 0.4 }), { frame });
+      });
+    else if (kind === "image") pickImage(addImageLayer);
+    else if (kind === "text") putLayer(newText(anim.name, { x: 0.5, y: 0.12, w: 0.8 }, 4.5));
+  };
+  const applyTemplate = (t: Template) => {
+    const old = comp;
+    const made = t.make({ device: shown === "compare" ? "iphone" : shown, posture, name: anim.name, anim: id });
+    setComp(() => ({ ...made, size: made.size !== "16x9" ? made.size : old.size, fps: old.fps }));
+    setCsel({ scene: made.scenes[0].id });
+    setTemplates(false);
+    setUndo({
+      label: `Started from “${t.name}”`,
+      run: () => {
+        setComp(() => old);
+        setCsel({ scene: old.scenes[0].id });
+        setUndo(null);
+      },
+    });
+  };
+  const layersPanel = (onPick?: () => void, inSheet?: boolean) => (
+    <LayersPanel
+      hideTitle={inSheet}
+      comp={comp}
+      setComp={setComp}
+      sel={csel}
+      setSel={(x) => {
+        setCsel(x);
+        onPick?.();
+      }}
+      onAdd={addToComp}
+      onTemplates={() => setTemplates(true)}
+      undo={undo ?? undefined}
+    />
+  );
+  const studioInspector = (cols: boolean) => <StudioInspector comp={comp} setComp={setComp} sel={csel} setSel={setCsel} liveName={liveName} pickAnim={pickAnim} pickImage={pickImage} cols={cols} />;
+
   const studioStage = studio && (
     <Suspense
       fallback={
@@ -724,20 +899,16 @@ export default function App() {
       }
     >
       <StudioStage
-      d={studioDevice}
-      posture={posture}
-      landscape={landscape}
-      dark={dark}
-      ink={inkFor(studioDevice)}
-      screenBg={screenBgFor()}
-      shot={shot}
-      setShot={setShot}
-      playing={playing}
-      setPlaying={setPlaying}
-      compact={phone || short}
-    >
-      {screenFor(studioDevice, 1)}
-      </StudioStage>
+        comp={comp}
+        setComp={setComp}
+        resolve={studioResolve}
+        sel={csel}
+        setSel={setCsel}
+        playing={playing}
+        setPlaying={setPlaying}
+        onAddScene={() => addToComp("scene")}
+        compact={phone || short}
+      />
     </Suspense>
   );
 
@@ -829,6 +1000,11 @@ export default function App() {
       <PersonArmsSpread size={18} />
     </IconButton>
   );
+  const hlBtn = (
+    <IconButton size={size} label="Hairline: redraw as thin lines" kbd="H" tipSide={tip} active={hl} onClick={() => setHl(!hl)}>
+      <PenNib size={18} />
+    </IconButton>
+  );
   const rotateBtn = (
     <IconButton size={size} label="Rotate" kbd="L" tipSide={tip} active={landscape} disabled={!canRotate} onClick={() => setLandscape(!landscape)}>
       <DeviceRotate size={18} />
@@ -874,9 +1050,9 @@ export default function App() {
         setLibOpen(false);
       }}
       onDrag={coarse ? undefined : beginDrag}
-      onClose={wide || tablet ? undefined : () => setLibOpen(false)}
-      visible={wide || libOpen || (tablet && panel === "library" && panelOpen)}
-      bare={tablet}
+      onClose={(wide || tablet) && !studio ? undefined : () => setLibOpen(false)}
+      visible={(wide && !studio) || libOpen || (tablet && !studio && panel === "library" && panelOpen)}
+      bare={tablet && !studio}
       dark={dark}
       previewSrc={previewSrc}
       footer={
@@ -894,7 +1070,7 @@ export default function App() {
   const dragAnim = drag && byId(drag.anim);
   const overlays = (
     <>
-      {!wide && !tablet && (
+      {(studio || (!wide && !tablet)) && (
         <Dialog open={libOpen} onClose={() => setLibOpen(false)} label="Library" className="drawer">
           {library}
         </Dialog>
@@ -930,6 +1106,19 @@ export default function App() {
           </div>
         </div>
       </Dialog>
+      <AnimPicker open={!!picker} onClose={() => setPicker(null)} onPick={(aid) => picker?.then(aid)} dark={dark} title={picker?.title} />
+      <TemplateDialog open={templates} onClose={() => setTemplates(false)} onPick={applyTemplate} />
+      <input
+        ref={imageInput}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void takeImage(f);
+        }}
+      />
       {drag && dragAnim && (
         <>
           {/* over every iframe, so the pointer stays ours until the drop */}
@@ -945,6 +1134,13 @@ export default function App() {
           onDrop={(e) => {
             e.preventDefault();
             setFileDrag(false);
+            if (studio) {
+              const img = [...e.dataTransfer.files].find((x) => x.type.startsWith("image/"));
+              if (!img) return say("Only pictures can go into a scene");
+              imageThen.current = addImageLayer;
+              void takeImage(img);
+              return say(`${img.name} added to ${cscene.name}`);
+            }
             const f = [...e.dataTransfer.files].find((x) => /^(image|video)\//.test(x.type));
             if (!f) return say("Only images and videos can go behind the screen");
             setMedia(f);
@@ -954,8 +1150,8 @@ export default function App() {
         >
           <div className="pointer-events-none flex max-w-sm flex-col items-center gap-2 rounded-2xl bg-overlay px-8 py-7 text-center shadow-lg">
             <ImageSquare size={28} className="text-fg-2" aria-hidden />
-            <p className="text-ui font-semibold">Drop to use as the screen background</p>
-            <p className="text-body text-fg-2">Images and videos sit behind every animation on the screen you're building.</p>
+            <p className="text-ui font-semibold">{studio ? `Drop to add it to ${cscene.name}` : "Drop to use as the screen background"}</p>
+            <p className="text-body text-fg-2">{studio ? "It comes in as a picture layer you can move, resize and animate in." : "Images and videos sit behind every animation on the screen you're building."}</p>
           </div>
         </div>
       )}
@@ -972,11 +1168,11 @@ export default function App() {
       onChange={(v) => setStudio(v === "mockup")}
       options={[
         { value: "preview", label: "Preview", icon: phone ? undefined : Devices },
-        { value: "mockup", label: "Mockup", icon: phone ? undefined : Cube },
+        { value: "mockup", label: "Studio", icon: phone ? undefined : Cube },
       ]}
     />
   );
-  // the stage changes in place: a short fade, so Preview ⇄ Mockup reads as one place changing
+  // the stage changes in place: a short fade, so Preview ⇄ Studio reads as one place changing
   const surface = (
     <div key={studio ? "mockup" : "preview"} className="fade-in relative flex min-h-0 flex-1 flex-col">
       {studio ? studioStage : stage}
@@ -1025,15 +1221,44 @@ export default function App() {
         </Popover>
       </>
     );
-    const exportMockupBtn = (
-      <>
-        <button type="button" popoverTarget="export-pop" aria-label="Export" className="press grid h-10 w-10 place-items-center rounded-lg bg-accent text-on-accent shadow-xs">
-          <DownloadSimple size={18} weight="bold" aria-hidden />
-        </button>
-        <Popover id="export-pop" side="top" align="end" label="Export">
-          <MockupExport shot={shot} set={setShot} exporting={exporter.state} onExport={exportMockup} />
-        </Popover>
-      </>
+    // the studio on a phone: four labelled places to go, each a sheet
+    const picked = inspectorTitle(comp, csel);
+    const studioBar = (
+      <nav aria-label="Studio" className="grid shrink-0 grid-cols-4 gap-1 border-t bg-surface px-2 pb-[calc(env(safe-area-inset-bottom)+6px)] pt-1.5">
+        {(
+          [
+            { id: "layers", label: "Layers", note: `${comp.scenes.length} scene${comp.scenes.length > 1 ? "s" : ""}`, icon: Stack, open: () => setSheet("layers") },
+            { id: "edit", label: "Edit", note: csel.layer === BG ? cscene.name : picked, icon: SlidersHorizontal, open: () => setSheet("edit") },
+            {
+              id: "bg",
+              label: "Background",
+              note: "Colour, effects",
+              icon: PaintBucket,
+              open: () => {
+                setCsel({ scene: csel.scene, layer: BG });
+                setSheet("edit");
+              },
+            },
+            { id: "export", label: "Export", note: exporter.state.phase === "working" ? "Rendering…" : comp.kind === "png" ? "Image" : "Video", icon: DownloadSimple, open: () => setSheet("export") },
+          ] as const
+        ).map((b) => {
+          const on = b.id === "bg" ? sheet === "edit" && csel.layer === BG : b.id === "edit" ? sheet === "edit" && csel.layer !== BG : sheet === b.id;
+          return (
+            <button
+              key={b.id}
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={on}
+              onClick={b.open}
+              className={`press flex h-[58px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 ${on ? "bg-surface-2 text-fg" : "text-fg-2 hover:bg-surface-2"}`}
+            >
+              <b.icon size={20} aria-hidden weight={b.id === "export" ? "bold" : "regular"} />
+              <span className="text-caption font-medium leading-4 text-fg">{b.label}</span>
+              <span className="w-full truncate text-center text-micro leading-3 text-fg-3">{b.note}</span>
+            </button>
+          );
+        })}
+      </nav>
     );
     return (
       <div className="flex h-full flex-col bg-canvas">
@@ -1093,13 +1318,14 @@ export default function App() {
                     </IconButton>
                   )}
                   {rmBtn}
+                  {hlBtn}
                   {replayBtn}
                 </div>
               </div>
             )}
           </main>
           {studio ? (
-            <MockupBar d={studioDevice} shot={shot} set={setShot} setDevice={(x) => setView(x)} posture={posture} setPosture={setPosture} exportButton={exportMockupBtn} />
+            studioBar
           ) : screen && !layer ? (
             <section aria-label="Screen builder" className="shrink-0 border-t bg-surface px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3">
               <p className="px-1 text-caption text-fg-3">{scene.layers.length ? "Tap a layer on the device to tune it." : "Add an animation to start building a screen."}</p>
@@ -1120,10 +1346,20 @@ export default function App() {
           <Sheet
             open={!!sheet}
             onClose={closeSheet}
-            title={content === "insights" ? "Performance" : screen ? "Screen" : "Properties"}
+            half={content === "layers" || content === "edit" || content === "export"}
+            title={
+              content === "layers" ? "Layers" : content === "edit" ? (csel.layer === BG ? "Background" : picked) : content === "export" ? "Export" : content === "insights" ? "Performance" : screen ? "Screen" : "Properties"
+            }
             actions={content === "props" && (!screen || layer) ? resetBtn(true) : undefined}
           >
-            {content === "insights" ? (
+            {content === "layers" ? (
+              // picking a layer goes straight to its settings
+              <div className="h-full [&>div]:bg-transparent">{layersPanel(() => setSheet("edit"), true)}</div>
+            ) : content === "edit" ? (
+              studioInspector(false)
+            ) : content === "export" ? (
+              <div className="[&>div]:w-full [&>div]:max-w-none">{studioExport}</div>
+            ) : content === "insights" ? (
               <div className="[&>div]:w-full [&>div]:max-w-none [&>div]:max-h-none">{insights}</div>
             ) : (
               content === "props" && (
@@ -1141,7 +1377,7 @@ export default function App() {
   }
 
   /* ---------------- tablet & desktop: library | stage | inspector ---------------- */
-  const crumbs = !wide ? (
+  const crumbs = !wide || studio ? (
     <button
       type="button"
       onClick={() => openLibrary(!coarse)}
@@ -1183,7 +1419,7 @@ export default function App() {
       </Button>
       <Popover id="export-pop" align="end" label="Export">
         {studio ? (
-          <MockupExport shot={shot} set={setShot} exporting={exporter.state} onExport={exportMockup} />
+          studioExport
         ) : (
           <CodeExport anim={subject} values={subjectValues} exporting={exporting} exportZip={exportZip} say={say} onMockup={() => setStudio(true)} />
         )}
@@ -1201,6 +1437,7 @@ export default function App() {
         {screen && pointerSeg}
         {divider}
         {rmBtn}
+        {hlBtn}
         {replayBtn}
         {divider}
         {insightsChip()}
@@ -1214,7 +1451,7 @@ export default function App() {
   /** What the inspector shows, wherever it sits: the mockup's settings, the screen's layers, or the properties. */
   const inspectorBody = (cols: boolean) =>
     studio ? (
-      <MockupPanel d={studioDevice} shot={shot} set={setShot} setDevice={(x) => setView(x)} posture={posture} setPosture={setPosture} cols={cols} />
+      studioInspector(cols)
     ) : screen ? (
       <>
         {screenPanel}
@@ -1234,7 +1471,7 @@ export default function App() {
     ) : (
       <PropertiesPanel anim={subject} values={subjectValues} setParam={setParam} cols={cols} />
     );
-  const inspectTitle = studio ? "Mockup" : screen ? "Screen" : "Properties";
+  const inspectTitle = studio ? inspectorTitle(comp, csel) : screen ? "Screen" : "Properties";
 
   /* ---------------- tablet held upright: the stage full width, a panel under it ---------------- */
   if (tablet) {
@@ -1261,27 +1498,66 @@ export default function App() {
           {surface}
           {dock}
         </main>
-        <section aria-label={panel === "library" ? "Library" : inspectTitle} className={`flex shrink-0 flex-col border-t bg-surface ${panelOpen ? "h-[40%]" : ""}`}>
-          <div className="flex h-14 shrink-0 items-center gap-2 pl-3 pr-2">
-            <Segmented
-              label="Panel"
-              value={panel}
-              onChange={(v) => {
-                setPanel(v);
-                setPanelOpen(true);
-              }}
-              options={[
-                { value: "inspect", label: inspectTitle, icon: SlidersHorizontal },
-                { value: "library", label: "Library", icon: SquaresFour },
-              ]}
-            />
-            {panel === "inspect" && panelOpen && !studio && resetBtn()}
-            <span className="ml-auto" />
-            <IconButton label={panelOpen ? "Hide the panel" : "Show the panel"} expanded={panelOpen} onClick={() => setPanelOpen(!panelOpen)}>
-              {panelOpen ? <CaretDown size={18} /> : <CaretUp size={18} />}
-            </IconButton>
-          </div>
-          {panelOpen && <div className="scroll-thin min-h-0 flex-1 overflow-y-auto border-t">{panel === "library" ? library : inspectorBody(true)}</div>}
+        {/* a sheet over the bottom of the stage: the handle says it moves, the header says what's in it */}
+        <section
+          aria-label={studio ? "Studio" : panel === "library" ? "Library" : inspectTitle}
+          className={`flex shrink-0 flex-col rounded-t-2xl border-t bg-surface shadow-[0_-10px_30px_-18px_rgb(0_0_0/0.35)] ${panelOpen ? (studio ? "h-[44%]" : "h-[40%]") : ""}`}
+        >
+          <button
+            type="button"
+            aria-label={panelOpen ? "Hide the panel" : "Show the panel"}
+            aria-expanded={panelOpen}
+            onClick={() => setPanelOpen(!panelOpen)}
+            className="group flex h-4 shrink-0 cursor-pointer items-end justify-center"
+          >
+            <span aria-hidden className="h-1 w-10 rounded-full bg-line-strong transition-colors duration-150 group-hover:bg-fg-3" />
+          </button>
+          {studio ? (
+            panelOpen ? (
+              <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,36%)_1fr]">
+                <div className="min-h-0 border-r">{layersPanel()}</div>
+                <div className="flex min-h-0 flex-col">
+                  <div className="flex h-12 shrink-0 items-center gap-2 border-b pl-4 pr-2">
+                    <h2 className="mr-auto truncate text-body font-semibold">{inspectTitle}</h2>
+                    <IconButton label="Hide the panel" onClick={() => setPanelOpen(false)}>
+                      <CaretDown size={18} />
+                    </IconButton>
+                  </div>
+                  <div className="scroll-thin min-h-0 flex-1 overflow-y-auto">{studioInspector(false)}</div>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setPanelOpen(true)} className="press flex h-12 items-center gap-2.5 px-4 text-left">
+                <Stack size={16} aria-hidden className="text-fg-2" />
+                <span className="text-body font-semibold">Layers and settings</span>
+                <span className="truncate text-caption text-fg-3">{inspectTitle}</span>
+                <CaretUp size={18} aria-hidden className="ml-auto shrink-0 text-fg-2" />
+              </button>
+            )
+          ) : (
+            <>
+              <div className="flex h-12 shrink-0 items-center gap-2 pl-3 pr-2">
+                <Segmented
+                  label="Panel"
+                  value={panel}
+                  onChange={(v) => {
+                    setPanel(v);
+                    setPanelOpen(true);
+                  }}
+                  options={[
+                    { value: "inspect", label: inspectTitle, icon: SlidersHorizontal },
+                    { value: "library", label: "Library", icon: SquaresFour },
+                  ]}
+                />
+                {panel === "inspect" && panelOpen && resetBtn()}
+                <span className="ml-auto" />
+                <IconButton label={panelOpen ? "Hide the panel" : "Show the panel"} expanded={panelOpen} onClick={() => setPanelOpen(!panelOpen)}>
+                  {panelOpen ? <CaretDown size={18} /> : <CaretUp size={18} />}
+                </IconButton>
+              </div>
+              {panelOpen && <div className="scroll-thin min-h-0 flex-1 overflow-y-auto border-t">{panel === "library" ? library : inspectorBody(true)}</div>}
+            </>
+          )}
         </section>
         {overlays}
       </div>
@@ -1293,12 +1569,12 @@ export default function App() {
       <a href="#inspector" className="skip-link">
         Skip to inspector
       </a>
-      {wide && <aside className="w-[272px] shrink-0 border-r">{library}</aside>}
+      {studio ? <aside className="w-[256px] shrink-0 border-r xl:w-[272px]">{layersPanel()}</aside> : wide && <aside className="w-[272px] shrink-0 border-r">{library}</aside>}
 
       <main aria-label="Stage" className="relative flex min-w-0 flex-1 flex-col bg-canvas">
         <div className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b bg-surface px-2">
           <div className="flex min-w-0 items-center gap-1.5 pl-1">
-            {!wide && (
+            {(!wide || studio) && (
               <IconButton label="Library" kbd="/" expanded={libOpen} onClick={() => openLibrary(!coarse)}>
                 <SidebarSimple size={18} />
               </IconButton>
