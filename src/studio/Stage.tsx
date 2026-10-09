@@ -104,6 +104,13 @@ export default function StudioStage({
     if (live.current.playing) t0.current = performance.now() - time.current * 1000
     draw()
   }
+  // for scripted checks: pause and show the composition at `t` seconds
+  useEffect(() => {
+    ;(window as unknown as { __studioSeek?: (t: number) => void }).__studioSeek = (t: number) => {
+      setPlaying(false)
+      seek(t)
+    }
+  })
   // picking a scene (in the layers or the timeline) shows it settled: its layers in, its camera on the shot
   useEffect(() => {
     if (live.current.playing) return

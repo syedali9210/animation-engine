@@ -8,6 +8,8 @@ import {
   BookOpen,
   CaretRight,
   Copy,
+  CubeTransparent,
+  LineSegment,
   DeviceMobile,
   DeviceTablet,
   DotsThree,
@@ -27,25 +29,32 @@ import {
 import { DEVICES, type DeviceId } from "../devices"
 import { ANIMS, byId } from "../registry"
 import { Button, Dialog, IconButton, MenuItem, Popover, type Icon } from "../ui"
-import { EFFECTS, TEMPLATES, isAnimated, uid, type Comp, type Layer, type Scene, type Template } from "./comp"
+import { EFFECTS, SAMPLE_COPY, TEMPLATES, isAnimated, uid, type Comp, type Layer, type Scene, type Template } from "./comp"
 import { BACKDROPS } from "./config"
 import { fillCss } from "./look"
 import type { Sel } from "./Stage"
 
 export const BG = "@bg"
 const DEVICE_ICON: Record<DeviceId, Icon> = { iphone: DeviceMobile, duo: BookOpen, ipad: DeviceTablet, macbook: Laptop }
-export const layerIcon = (l: Layer): Icon => (l.kind === "device" ? DEVICE_ICON[l.device] : l.kind === "component" ? SquaresFour : l.kind === "image" ? ImageIcon : TextT)
+export const layerIcon = (l: Layer): Icon =>
+  l.kind === "device" ? DEVICE_ICON[l.device] : l.kind === "component" ? SquaresFour : l.kind === "image" ? ImageIcon : l.kind === "breakdown" ? CubeTransparent : l.kind === "callout" ? LineSegment : TextT
 export function layerName(l: Layer) {
   if (l.name) return l.name
   if (l.kind === "device") return DEVICES.find((d) => d.id === l.device)!.name
   if (l.kind === "component") return byId(l.anim)?.name ?? "Component"
+  if (l.kind === "breakdown") return `${byId(l.anim)?.name ?? "Screen"}, ${BD_NAME[l.view]}`
   if (l.kind === "image") return l.file || "Image"
-  return l.text.split("\n")[0] || "Title"
+  if (l.kind === "callout") return l.text || "Callout"
+  return l.text.split("\n")[0].replace("|", "") || "Title"
 }
+const BD_NAME = { table: "on the table", assemble: "assembling", stack: "in layers", focus: "close up" }
+const BD_NOTE = { table: "Components out onto the table", assemble: "Components into the screen", stack: "Components floating in layers", focus: "One component, close" }
 function layerNote(l: Layer) {
   if (l.kind === "device") return l.content.kind === "current" ? "Live screen" : l.content.kind === "anim" ? (byId(l.content.id)?.name ?? "Animation") : "Picture"
-  if (l.kind === "component") return `${l.enter === "none" ? "Animation" : `Enters: ${l.enter}`}${l.hairline ? " · hairline" : ""}`
+  if (l.kind === "component") return `${l.shot && l.shot !== "flat" ? `${l.shot[0].toUpperCase()}${l.shot.slice(1)} shot` : l.enter === "none" ? "Animation" : `Enters: ${l.enter}`}${l.hairline ? " · hairline" : ""}`
+  if (l.kind === "breakdown") return `${BD_NOTE[l.view]}${l.lines ? " · hairline" : ""}`
   if (l.kind === "image") return l.enter === "none" ? "Picture" : `Enters: ${l.enter}`
+  if (l.kind === "callout") return "Label with a leader line"
   return l.enter === "none" ? "Title" : `Enters: ${l.enter}`
 }
 
@@ -63,7 +72,7 @@ export function LayersPanel({
   setComp: (fn: (c: Comp) => Comp) => void
   sel: Sel
   setSel: (s: Sel) => void
-  onAdd: (kind: "scene" | "device" | "component" | "image" | "text", device?: DeviceId) => void
+  onAdd: (kind: "scene" | "device" | "component" | "breakdown" | "image" | "text" | "callout", device?: DeviceId) => void
   onTemplates: () => void
   /** after a template replaced the composition: put the old one back */
   undo?: { label: string; run: () => void }
@@ -118,11 +127,17 @@ export function LayersPanel({
             <MenuItem icon={SquaresFour} hint="Any animation from the library, outside a device." onSelect={() => onAdd("component")}>
               Component
             </MenuItem>
+            <MenuItem icon={CubeTransparent} hint="A screen taken apart into its components: on the table, in layers, or one close up." onSelect={() => onAdd("breakdown")}>
+              Breakdown
+            </MenuItem>
             <MenuItem icon={ImageIcon} onSelect={() => onAdd("image")}>
               Picture
             </MenuItem>
             <MenuItem icon={TextT} onSelect={() => onAdd("text")}>
               Title
+            </MenuItem>
+            <MenuItem icon={LineSegment} hint="A label with a leader line to a point." onSelect={() => onAdd("callout")}>
+              Callout
             </MenuItem>
           </div>
         </Popover>
@@ -347,14 +362,14 @@ export function LayersPanel({
 
 /** A storyboard of the template: one card per scene, drawn from what's in it. */
 function Storyboard({ t }: { t: Template }) {
-  const c = t.make({ device: "iphone", posture: "open", name: "Title", anim: ANIMS[0].id })
+  const c = t.make({ device: "iphone", posture: "open", name: "Title", anim: ANIMS[0].id, copy: SAMPLE_COPY })
   return (
-    <div className="flex h-16 gap-1 rounded-md p-1.5" style={{ background: fillCss(c.fill) }}>
-      {c.scenes.slice(0, 5).map((s) => (
+    <div className="flex h-16 gap-1 rounded-md p-1.5" style={{ background: c.auto ? "linear-gradient(90deg, #0b0b0d 0%, #1b1b20 45%, #f2f1ec 55%, #0b0b0d 100%)" : fillCss(c.fill) }}>
+      {c.scenes.slice(0, 8).map((s) => (
         <div key={s.id} className="flex min-w-0 flex-1 items-center justify-center gap-0.5 rounded-[4px] bg-white/10 shadow-[inset_0_0_0_1px_rgb(127_127_127/0.25)]">
           {s.layers.map((l) => {
             const I = layerIcon(l)
-            return <I key={l.id} size={l.kind === "device" ? 14 : 11} className={c.fill === "black" || c.fill === "midnight" ? "text-white/80" : "text-black/60"} />
+            return <I key={l.id} size={l.kind === "device" ? 14 : 11} className={c.fill === "black" || c.fill === "midnight" || c.auto ? "text-white/80" : "text-black/60"} />
           })}
         </div>
       ))}
@@ -369,7 +384,7 @@ export function TemplateDialog({ open, onClose, onPick }: { open: boolean; onClo
         <div className="flex items-center justify-between border-b py-3 pl-5 pr-3">
           <div>
             <h2 className="text-ui font-semibold">Start from a template</h2>
-            <p className="text-caption text-fg-3">It uses what's open now: the device, and the animation on its screen.</p>
+            <p className="text-caption text-fg-3">It uses what's open now: the device, the animation on its screen, its own words for the copy, and your brand.</p>
           </div>
           <IconButton label="Close" onClick={onClose}>
             <X size={16} />

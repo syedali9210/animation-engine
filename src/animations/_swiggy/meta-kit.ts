@@ -9,6 +9,7 @@ export const assets = (...files: string[]) => [...files, ...FONTS].map((f) => `/
 
 export const swiggy = {
   category: "Swiggy App",
+  brand: "Swiggy",
   source: "Desktop/swiggy (Figma Make), split into components here",
   deps: ["react", "lucide-react"],
   includes: ["_swiggy", "_skeleton"],

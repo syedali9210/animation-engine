@@ -650,6 +650,7 @@ export default function ChatQuiz({ p = defaults }: { p?: Params }) {
       {phase !== "idle" && !dismissed && (
       <motion.div
         key="card"
+        data-component="Quiz"
         layout
         /* borderRadius must live in `style` - that's the only form Motion
            counter-scales during a layout animation. In `animate` it renders as a
@@ -1143,7 +1144,7 @@ export default function ChatQuiz({ p = defaults }: { p?: Params }) {
         <div className="relative z-10 flex h-full flex-col">
         {/* chip + field share a row: the chip is the command, the text after it
             is that command's argument */}
-        <div className="flex flex-1 items-start gap-2 px-4 pt-3.5 sm:px-5">
+        <div data-component="Message field" className="flex flex-1 items-start gap-2 px-4 pt-3.5 sm:px-5">
           <AnimatePresence initial={false}>
             {chip && (
               <motion.span
@@ -1230,7 +1231,7 @@ export default function ChatQuiz({ p = defaults }: { p?: Params }) {
         </div>
 
         {/* ---- toolbar ---- */}
-        <div className="flex items-center gap-2 px-4 pb-3 sm:px-5">
+        <div data-component="Toolbar" className="flex items-center gap-2 px-4 pb-3 sm:px-5">
           <input
             ref={fileRef}
             type="file"
@@ -1457,6 +1458,7 @@ function CommandMenu({
           exit={{ opacity: 0, y: 8, scale: 0.98 }}
           transition={{ duration: 0.26, ease: EASE_OUT }}
           /* inset-x-0 so the palette lines up with the composer's own edges */
+          data-component="Command menu"
           className="absolute inset-x-0 bottom-full z-40 mb-2 origin-bottom overflow-hidden border border-[var(--edge)] bg-[var(--card)] shadow-[var(--shadow)]"
           style={{ borderRadius: R }}
         >

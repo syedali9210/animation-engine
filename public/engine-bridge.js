@@ -131,7 +131,13 @@
         bare = !!d.on;
         for (const fn of bareHandlers) fn(bare);
       }
-      if (d.type === "hairline") setHairline(!!d.on);
+      if (d.type === "hairline") setHairline(!!d.on, d.ink, d.fill);
+      if (d.type === "peel") setPeel(d.index == null ? -1 : +d.index);
+      if (d.type === "part") {
+        part = d.index == null ? "" : String(d.index);
+        applyPart();
+      }
+      if (d.type === "describe") describe();
     } catch (err) {
       post("error", { message: String((err && err.message) || err) });
     }
@@ -139,41 +145,375 @@
   addEventListener("error", (e) => post("error", { message: e.message }));
   addEventListener("unhandledrejection", (e) => post("error", { message: String(e.reason && e.reason.message || e.reason) }));
 
-  /* ---------- 2b. hairline (?hl=1, or a "hairline" message) ----------
-     Redraws the page as thin ink lines, the Hairline figures' look: brightness, softened a touch so textures don't
-     turn to speckle, then its edges both ways round, as a line in the ink (#232327 on paper, #d0d6e0 at night) over
-     the page's own ground. Done here, inside the page, so it works for any frame, whatever its origin. */
+  /* ---------- 2b. hairline and layers (?hl=1 ?peel=k, or "hairline" / "peel" messages) ----------
+     Hairline redraws the page as thin ink lines from its DOM, not its pixels: every painted box becomes its own
+     outline (rounded corners kept), text stays text in the ink, icons keep only their strokes, and pictures and
+     canvases become the edges of their brightness. It's live: the page animates underneath as before. The ink is the
+     Hairline figures' (#232327 on paper, #d0d6e0 at night) or a colour the engine sends. Turned on, the page draws in
+     back to front, one layer after another.
+     Layers split the page by how deep each painted thing sits among the painted things around it: the ground, the
+     surfaces on it, what's on those, and anything floating over the page (a toast, a sheet). "peel" shows just one,
+     so the engine can stand the layers apart in an exploded view; each frame reports what its layers hold. */
+  const realEvery = setInterval.bind(window);
+  const HL_INK = { light: "#232327", dark: "#d0d6e0" };
   let hairline = q.get("hl") === "1";
-  const HL_INK = { light: [0x23, 0x23, 0x27], dark: [0xd0, 0xd6, 0xe0] };
-  const hlFilter = (id, rgb) => {
-    const [r, g, b] = rgb.map((v) => (v / 255).toFixed(3));
-    const fn = (c) => `<feFunc${c} type="linear" slope="6.5" intercept="-0.2"/>`;
-    return `<filter id="${id}" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">` +
+  let hlInk = /^#[0-9a-f]{6}$/i.test(q.get("ink") || "") ? q.get("ink") : "";
+  // surfaces filled with the ground hide the lines under them, the way a drawing does; "none" draws through (x-ray)
+  let hlFill = q.get("fill") || "ground";
+  const HL_GROUND = { light: "#ffffff", dark: "#0a0a0c" };
+  const fillNow = () => (hlFill === "none" ? "transparent" : /^#[0-9a-f]{6}$/i.test(hlFill) ? hlFill : HL_GROUND[scheme]);
+  let peel = q.has("peel") ? +q.get("peel") : -1;
+  const LAYERS = Math.max(2, Math.min(6, +(q.get("layers") || 4)));
+  const inkNow = () => hlInk || HL_INK[scheme];
+  // a picture's or a canvas's lines: its brightness, softened so texture doesn't speckle, then its edges both ways
+  const edgeFilter = (hex) => {
+    const [r, g, b] = [1, 3, 5].map((i) => (parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(3));
+    const fn = (c) => `<feFunc${c} type="linear" slope="5" intercept="-0.25"/>`;
+    return `<filter id="__hl-edge" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">` +
       `<feColorMatrix type="matrix" values="0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0.299 0.587 0.114 0 0  0 0 0 1 0" result="lum"/>` +
-      `<feGaussianBlur in="lum" stdDeviation="1" result="soft"/>` +
+      `<feGaussianBlur in="lum" stdDeviation="1.2" result="soft"/>` +
       `<feConvolveMatrix in="soft" order="3" kernelMatrix="-1 -1 -1 -1 8 -1 -1 -1 -1" preserveAlpha="true" result="up"/>` +
       `<feConvolveMatrix in="soft" order="3" kernelMatrix="1 1 1 1 -8 1 1 1 1" preserveAlpha="true" result="down"/>` +
       `<feComposite in="up" in2="down" operator="arithmetic" k2="1" k3="1" result="edges"/>` +
       `<feComponentTransfer in="edges" result="lines">${fn("R")}${fn("G")}${fn("B")}</feComponentTransfer>` +
       `<feColorMatrix in="lines" type="matrix" values="0 0 0 0 ${r}  0 0 0 0 ${g}  0 0 0 0 ${b}  0.34 0.33 0.33 0 0"/></filter>`;
   };
-  const applyHairline = () => {
+  const range = (n) => [...Array(n).keys()];
+  const HL_CSS =
+    `html.__hl, html.__hl body { background: transparent !important; }
+html.__hl *, html.__hl *::before, html.__hl *::after { background-color: transparent !important; background-image: none !important; box-shadow: none !important; text-shadow: none !important; border-color: var(--hl) !important; color: var(--hl) !important; -webkit-text-fill-color: var(--hl) !important; caret-color: var(--hl) !important; outline-color: var(--hl) !important; backdrop-filter: none !important; filter: none !important; }
+html.__hl [data-hl-k="surface"], html.__hl [data-hl-k="control"], html.__hl [data-hl-k="media"] { outline: 1px solid var(--hl) !important; outline-offset: -1px !important; }
+html.__hl [data-hl-k="surface"], html.__hl [data-hl-k="control"] { background-color: var(--hl-fill) !important; }
+html.__hl svg, html.__hl svg * { fill: none !important; stroke: var(--hl) !important; }
+html.__hl svg * { stroke-width: 1.2px !important; vector-effect: non-scaling-stroke; }
+html.__hl img, html.__hl video, html.__hl canvas, html.__hl picture { filter: url(#__hl-edge) !important; }
+html.__hl-in [data-hl-b] { animation: __hl-in .6s cubic-bezier(.23,1,.32,1) both; }
+${range(6).map((k) => `html.__hl-in [data-hl-b="${k}"] { animation-delay: ${k * 160}ms; }`).join("\n")}
+@keyframes __hl-in { from { opacity: 0; } }
+html[data-peel]:not([data-peel="0"]), html[data-peel]:not([data-peel="0"]) body { background: transparent !important; }
+html[data-peel] body * { visibility: hidden !important; }
+${range(6).map((k) => `html[data-peel="${k}"] [data-hl-b="${k}"], html[data-peel="${k}"] svg[data-hl-b="${k}"] * { visibility: visible !important; }`).join("\n")}`;
+
+  const isMedia = (t) => t === "IMG" || t === "VIDEO" || t === "CANVAS" || t === "IFRAME" || t === "PICTURE";
+  const clear = (c) => c === "transparent" || c === "rgba(0, 0, 0, 0)";
+  /** What an element paints by itself, if anything: a surface, a control, text, an icon or a picture. */
+  const paints = (el, cs) => {
+    const t = el.tagName;
+    if (isMedia(t)) return "media";
+    if (t === "svg") return "icon";
+    const control = /^(BUTTON|A|INPUT|SELECT|TEXTAREA|LABEL)$/.test(t) || el.getAttribute("role") === "button";
+    const border = ["Top", "Right", "Bottom", "Left"].some((s) => parseFloat(cs[`border${s}Width`]) > 0 && cs[`border${s}Style`] !== "none" && !clear(cs[`border${s}Color`]));
+    if (!clear(cs.backgroundColor) || cs.backgroundImage !== "none" || border || cs.boxShadow !== "none") return control ? "control" : "surface";
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(t)) return "control";
+    for (const n of el.childNodes) if (n.nodeType === 3 && n.textContent.trim()) return control ? "control" : "text";
+    return null;
+  };
+  const NOUN = { surface: ["surface", "surfaces"], control: ["control", "controls"], text: ["text run", "text runs"], icon: ["icon", "icons"], media: ["picture", "pictures"] };
+  let lastReport = "";
+  /** Sorts the page into layers (data-hl-b), marks what each element paints (data-hl-k), and reports the layers. */
+  const scan = () => {
     const body = document.body;
     if (!body) return;
-    if (hairline && !document.getElementById("__hl-defs")) {
-      const holder = document.createElement("div");
-      holder.innerHTML = `<svg id="__hl-defs" aria-hidden="true" width="0" height="0" style="position:absolute;width:0;height:0"><defs>${hlFilter("__hl-light", HL_INK.light)}${hlFilter("__hl-dark", HL_INK.dark)}</defs></svg>`;
-      document.documentElement.appendChild(holder.firstChild);
+    const items = [];
+    const walk = (el, over) => {
+      for (const c of el.children) {
+        if (c.id === "__hl-defs" || c.tagName === "SCRIPT" || c.tagName === "STYLE") continue;
+        const cs = getComputedStyle(c);
+        if (cs.display === "none") continue;
+        const z = parseInt(cs.zIndex) || 0;
+        const floats = over || cs.position === "fixed" || (cs.position === "absolute" && z >= 40);
+        const kind = paints(c, cs);
+        if (kind) {
+          const r = c.getBoundingClientRect();
+          if (r.width > 0.5 && r.height > 0.5) items.push({ el: c, kind, over: floats, r });
+        }
+        if (kind !== "icon" && kind !== "media") walk(c, floats);
+      }
+    };
+    walk(body, false);
+    // the way a designer takes a screen apart, back to front: the ground (anything covering most of it), the surfaces
+    // on it, the pictures, the type and icons, and whatever floats over the page; empty ones are skipped, and with
+    // fewer layers asked for, neighbours merge (pictures into surfaces first, then floating into type)
+    const W = innerWidth, H = innerHeight;
+    const CLASS = ["ground", "surfaces", "media", "content", "floating"];
+    const classOf = (it) =>
+      it.over ? "floating" : it.kind === "media" ? "media" : it.kind === "text" || it.kind === "icon" ? "content" : it.r.width * it.r.height >= W * H * 0.5 ? "ground" : "surfaces";
+    let used = CLASS.filter((c) => items.some((it) => classOf(it) === c));
+    const merge = { media: "surfaces", floating: "content", ground: "surfaces", content: "surfaces" };
+    const into = new Map(CLASS.map((c) => [c, c]));
+    for (const c of ["media", "floating", "ground", "content"]) {
+      if (used.length <= LAYERS) break;
+      if (!used.includes(c)) continue;
+      for (const [k, v] of into) if (v === c) into.set(k, merge[c]);
+      used = used.filter((u) => u !== c);
     }
-    body.style.filter = hairline ? `url(#__hl-${scheme})` : "";
+    const count = used.length;
+    const groups = range(count).map(() => []);
+    for (const it of items) {
+      const b = used.indexOf(into.get(classOf(it)));
+      if (it.el.dataset.hlB !== String(b)) it.el.dataset.hlB = String(b);
+      if (it.el.dataset.hlK !== it.kind) it.el.dataset.hlK = it.kind;
+      groups[b].push(it);
+    }
+    const LABEL = { ground: "Ground", surfaces: "Surfaces", media: "Media", content: "Type & icons", floating: "Floating" };
+    const layers = groups.map((g, i) => {
+      const kinds = {};
+      let x0 = W, y0 = H, x1 = 0, y1 = 0, big = null;
+      for (const it of g) {
+        kinds[it.kind] = (kinds[it.kind] || 0) + 1;
+        const r = it.r;
+        x0 = Math.min(x0, Math.max(0, r.left)); y0 = Math.min(y0, Math.max(0, r.top));
+        x1 = Math.max(x1, Math.min(W, r.right)); y1 = Math.max(y1, Math.min(H, r.bottom));
+        if (!big || r.width * r.height > big.width * big.height) big = r;
+      }
+      const top = Object.entries(kinds).sort((a, b) => b[1] - a[1]);
+      const name = LABEL[used[i]];
+      const note = top.slice(0, 2).map(([k, n]) => `${n} ${NOUN[k][n === 1 ? 0 : 1]}`).join(" · ");
+      const anchor = big ? [Math.max(0, Math.min(W, big.left + big.width / 2)), Math.max(0, Math.min(H, big.top + Math.min(big.height / 2, 60)))] : [W / 2, H / 2];
+      return { i, name, note, n: g.length, box: x1 > x0 ? [x0, y0, x1 - x0, y1 - y0] : [0, 0, W, H], anchor };
+    });
+    const msg = JSON.stringify(layers.map((l) => [l.name, l.note, l.box.map(Math.round), l.anchor.map(Math.round)]));
+    if (msg !== lastReport) {
+      lastReport = msg;
+      post("layers", { w: W, h: H, layers });
+    }
   };
-  const setHairline = (on) => {
+  /* ---------- 2c. components (?parts=1 reports them, ?part=k shows only that one, ?part=none the screen without any)
+     A screen is made of components: a header, a search bar, category tabs, a banner, cards, a tab bar. Named ones
+     (data-component="Search bar") come first. Otherwise they're found from the page's own structure: down through
+     the wrappers to the container whose children stack up the screen, those children (a child that is most of the
+     screen is opened up into its own), and anything fixed over the page. Showing one hides everything else but keeps
+     every place (visibility, not removal) and keeps the backgrounds it sits on, so a component cut out of the screen
+     looks exactly as it does in it, and lines up with it to the pixel. */
+  let part = q.get("part") ?? "";
+  const wantParts = q.get("parts") === "1" || part !== "";
+  const PART_CSS =
+    `html[data-part="none"] body *:not([data-hl-anc]) { visibility: hidden !important; }
+${range(16).map((k) => `html[data-part="${k}"] body *:not([data-hl-cmp="${k}"], [data-hl-cmp="${k}"] *, [data-hl-anc~="${k}"]) { visibility: hidden !important; }`).join("\n")}`;
+  const onScreen = (r) => Math.max(0, Math.min(innerWidth, r.right) - Math.max(0, r.left)) * Math.max(0, Math.min(innerHeight, r.bottom) - Math.max(0, r.top));
+  const kidsOf = (el) =>
+    [...el.children].filter((c) => {
+      if (/^(SCRIPT|STYLE|LINK|TEMPLATE|NOSCRIPT)$/.test(c.tagName) || c.id === "__hl-defs") return false;
+      if (getComputedStyle(c).display === "none") return false;
+      const r = c.getBoundingClientRect();
+      return r.width >= 2 && r.height >= 2;
+    });
+  const titled = (s) => s.replace(/\s+/g, " ").trim().replace(/^./, (c) => c.toUpperCase()).slice(0, 28);
+  /** The screen's components, top to bottom, then whatever floats over it. */
+  const findParts = () => {
+    const screen = innerWidth * innerHeight;
+    const big = (el) => onScreen(el.getBoundingClientRect()) > screen * 0.004;
+    const named = [...document.querySelectorAll("[data-component]")].filter((el) => !el.parentElement?.closest("[data-component]") && big(el));
+    if (named.length >= 2) return named;
+    const floating = [];
+    // a scrim (a full-screen wash with nothing in it) isn't a component
+    const scrim = (el) => onScreen(el.getBoundingClientRect()) > screen * 0.85 && !(el.textContent || "").trim() && !el.querySelector("img, svg, canvas, video, input, button");
+    let root = document.body;
+    for (let depth = 0; depth < 16; depth++) {
+      if (root.dataset.component) break;
+      const kids = kidsOf(root);
+      const flow = [];
+      for (const c of kids) {
+        const cs = getComputedStyle(c);
+        const share = onScreen(c.getBoundingClientRect()) / screen;
+        if (cs.position === "fixed" || (cs.position === "absolute" && share < 0.6) || (cs.position === "absolute" && (parseInt(cs.zIndex) || 0) >= 20)) {
+          if (share > 0.004 && !scrim(c)) floating.push(c);
+        } else flow.push(c);
+      }
+      if (flow.length === 1) {
+        root = flow[0];
+        continue;
+      }
+      // one child that is most of the screen, beside a little decoration: that's the wrapper
+      const main = flow.filter((c) => onScreen(c.getBoundingClientRect()) > screen * 0.7);
+      if (main.length === 1 && flow.length <= 3) {
+        root = main[0];
+        continue;
+      }
+      break;
+    }
+    let sections = kidsOf(root).filter((c) => !floating.includes(c) && big(c) && !scrim(c));
+    // a section that is most of the screen is a group of components: open it up (twice at most; a named one stays whole)
+    for (let pass = 0; pass < 2; pass++)
+      sections = sections.flatMap((s) => {
+        const kids = kidsOf(s).filter((c) => big(c) && !scrim(c));
+        return !s.dataset.component && onScreen(s.getBoundingClientRect()) > screen * 0.42 && kids.length >= 2 ? kids : [s];
+      });
+    // a floating thing that is itself a wrapper (a sheet's positioner) is named by what's in it, but kept whole
+    return [...sections, ...floating].filter(big).slice(0, 16);
+  };
+  const nameOf = (el, i) => {
+    if (el.dataset.component) return el.dataset.component;
+    const label = el.getAttribute("aria-label");
+    if (label) return titled(label);
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    const buttons = el.querySelectorAll("button, [role=button], a").length;
+    const floats = cs.position === "fixed" || cs.position === "absolute";
+    if (el.matches("[role=dialog], dialog, [aria-modal=true]") || el.querySelector("[role=dialog], [aria-modal=true]")) return r.bottom >= innerHeight - 2 && r.height < innerHeight * 0.8 ? "Sheet" : "Dialog";
+    if (el.matches("[role=status], [role=alert]") || (floats && r.height < innerHeight * 0.14 && r.top < innerHeight * 0.3 && (el.textContent || "").trim())) return "Toast";
+    if (el.matches("nav, [role=navigation], [role=tablist]") || el.querySelector("nav, [role=tablist]")) return r.bottom > innerHeight * 0.85 ? "Tab bar" : "Navigation";
+    if (el.querySelector("input[type=search], [role=search], [role=searchbox]") || (el.querySelector("input") && /search/i.test(el.textContent))) return "Search";
+    const fields = el.querySelectorAll("input:not([type=hidden]), textarea, select").length;
+    if (fields === 1 && el.querySelector("textarea, input") && buttons >= 1 && r.height < innerHeight * 0.3) return "Composer";
+    if (fields >= 2) return "Form";
+    if (floats && r.bottom >= innerHeight - 2 && r.height < innerHeight * 0.85 && r.height > innerHeight * 0.2) return "Sheet";
+    const h = el.querySelector("h1, h2, h3, h4");
+    if (h && h.textContent.trim() && h.textContent.trim().split(/\s+/).length <= 4) return titled(h.textContent);
+    const media = el.querySelectorAll("img, canvas, video").length;
+    if ([el, ...el.querySelectorAll("*")].some((x) => x.scrollWidth > x.clientWidth + 24 && /auto|scroll/.test(getComputedStyle(x).overflowX))) return media ? "Carousel" : "Chips";
+    if (r.top < innerHeight * 0.12 && r.height < innerHeight * 0.22) return "Header";
+    if (r.bottom > innerHeight * 0.88 && r.height < innerHeight * 0.16) return buttons >= 3 ? "Tab bar" : "Footer";
+    if (media >= 3) return "Gallery";
+    if (media >= 1 && r.height > 120) return "Media";
+    const t = (el.innerText || "").trim().split("\n")[0].trim();
+    if (buttons === 1 && t.length && t.length < 24) return titled(t);
+    if (t && t.split(/\s+/).length <= 3) return titled(t);
+    return `Part ${i + 1}`;
+  };
+  /** The thing in a component a camera would close in on: its biggest heading, or its main control. */
+  const keyOf = (el) => {
+    let best = null, score = 0;
+    for (const x of [el, ...el.querySelectorAll("*")]) {
+      const r = x.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8 || onScreen(r) < 40) continue;
+      const cs = getComputedStyle(x);
+      const kind = paints(x, cs);
+      if (!kind || kind === "surface") continue;
+      const s = kind === "control" ? 2.2 * Math.sqrt(r.width * r.height) : kind === "media" ? 0.7 * Math.sqrt(r.width * r.height) : parseFloat(cs.fontSize) * (+cs.fontWeight >= 600 ? 3.4 : 2.4) + Math.min(r.width, 200) * 0.05;
+      if (s > score) {
+        score = s;
+        best = r;
+      }
+    }
+    if (!best) return null;
+    // only the part of it on the screen
+    const x0 = Math.max(0, best.left), y0 = Math.max(0, best.top);
+    const x1 = Math.min(innerWidth, best.right), y1 = Math.min(innerHeight, best.bottom);
+    return x1 - x0 > 4 && y1 - y0 > 4 ? [x0, y0, x1 - x0, y1 - y0].map(Math.round) : null;
+  };
+  let lastParts = "";
+  const scanParts = () => {
+    if (!document.body) return;
+    const els = findParts();
+    for (const x of document.querySelectorAll("[data-hl-cmp], [data-hl-anc]")) {
+      delete x.dataset.hlCmp;
+      delete x.dataset.hlAnc;
+    }
+    const items = els.map((el, i) => {
+      el.dataset.hlCmp = String(i);
+      for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) a.dataset.hlAnc = `${a.dataset.hlAnc ?? ""} ${i}`.trim();
+      const r = el.getBoundingClientRect();
+      const kinds = {};
+      for (const x of el.querySelectorAll("*")) {
+        const k = paints(x, getComputedStyle(x));
+        if (k && k !== "surface") kinds[k] = (kinds[k] || 0) + 1;
+      }
+      const note = Object.entries(kinds).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, n]) => `${n} ${NOUN[k][n === 1 ? 0 : 1]}`).join(" · ");
+      const box = [Math.max(0, r.left), Math.max(0, r.top), Math.min(innerWidth, r.right) - Math.max(0, r.left), Math.min(innerHeight, r.bottom) - Math.max(0, r.top)].map(Math.round);
+      return { i, name: nameOf(el, i), note, box, key: keyOf(el) };
+    });
+    const bg = (el) => (el ? getComputedStyle(el).backgroundColor : "");
+    const ground = [document.body, document.documentElement, ...document.querySelectorAll("body > div, #root > div")].map(bg).find((c) => c && !clear(c)) || (scheme === "dark" ? "#0a0a0c" : "#ffffff");
+    window.__parts = { ground, items };
+    const msg = JSON.stringify(items);
+    if (msg !== lastParts) {
+      lastParts = msg;
+      post("parts", { w: innerWidth, h: innerHeight, ground, items });
+    }
+  };
+  const applyPart = () => {
+    const doc = document.documentElement;
+    if (!document.getElementById("__part-style")) {
+      const st = document.createElement("style");
+      st.id = "__part-style";
+      st.textContent = PART_CSS;
+      (document.head || doc).appendChild(st);
+    }
+    if (part !== "") doc.dataset.part = part;
+    else delete doc.dataset.part;
+    if (wantParts) scanParts();
+  };
+  window.__partScan = () => wantParts && scanParts();
+  window.__hlScan = scan;
+
+  const applyHairline = () => {
+    const doc = document.documentElement;
+    if (!document.getElementById("__hl-style")) {
+      const st = document.createElement("style");
+      st.id = "__hl-style";
+      st.textContent = HL_CSS;
+      (document.head || doc).appendChild(st);
+    }
+    let defs = document.getElementById("__hl-defs");
+    if (hairline && !defs) {
+      const holder = document.createElement("div");
+      holder.innerHTML = `<svg id="__hl-defs" aria-hidden="true" width="0" height="0" style="position:absolute;width:0;height:0"><defs></defs></svg>`;
+      defs = holder.firstChild;
+      doc.appendChild(defs);
+    }
+    if (defs) defs.firstChild.innerHTML = edgeFilter(inkNow());
+    doc.style.setProperty("--hl", inkNow());
+    doc.style.setProperty("--hl-fill", fillNow());
+    doc.classList.toggle("__hl", hairline);
+    if (peel >= 0) doc.dataset.peel = String(peel);
+    else delete doc.dataset.peel;
+    if (hairline || peel >= 0) scan();
+  };
+  const setHairline = (on, ink, fill) => {
+    if (typeof ink === "string") hlInk = /^#[0-9a-f]{6}$/i.test(ink) ? ink : "";
+    if (typeof fill === "string") hlFill = fill;
+    const turnedOn = on && !hairline;
     hairline = on;
+    applyHairline();
+    // drawn in back to front, the first time it comes on in a running page
+    if (turnedOn && document.body) {
+      document.documentElement.classList.remove("__hl-in");
+      void document.documentElement.offsetWidth;
+      document.documentElement.classList.add("__hl-in");
+    }
+  };
+  const setPeel = (k) => {
+    peel = Number.isFinite(k) ? k : -1;
     applyHairline();
   };
   themeHandlers.add(applyHairline); // the ink follows the theme
-  if (document.body) applyHairline();
-  else addEventListener("DOMContentLoaded", applyHairline);
+  const startHairline = () => {
+    applyHairline();
+    applyPart();
+    // keep the layers and the components current as the page changes (cheap: a few hundred elements, a few times a
+    // second)
+    realEvery(() => {
+      if (hairline || peel >= 0 || q.get("layers")) scan();
+      if (wantParts) scanParts();
+    }, 350);
+  };
+  if (document.body) startHairline();
+  else addEventListener("DOMContentLoaded", startHairline);
+
+  /** For the engine's copy writer: what the page says, biggest first, and its main colours. */
+  const describe = () => {
+    const seen = new Set();
+    const texts = [];
+    const colors = {};
+    for (const el of document.body ? document.body.querySelectorAll("*") : []) {
+      const cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) continue;
+      if (!clear(cs.backgroundColor)) colors[cs.backgroundColor] = (colors[cs.backgroundColor] || 0) + r.width * r.height;
+      let own = "";
+      for (const n of el.childNodes) if (n.nodeType === 3) own += n.textContent;
+      own = own.replace(/\s+/g, " ").trim();
+      if (!own || own.length > 120 || seen.has(own)) continue;
+      seen.add(own);
+      colors[cs.color] = (colors[cs.color] || 0) + own.length * 40;
+      texts.push({ t: own, size: parseFloat(cs.fontSize), weight: +cs.fontWeight || 400, tag: el.tagName.toLowerCase(), control: !!paints(el, cs) && /^(BUTTON|A)$/.test(el.tagName) });
+    }
+    texts.sort((a, b) => b.size - a.size || b.weight - a.weight);
+    const palette = Object.entries(colors).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([c]) => c);
+    post("describe", { title: document.title, texts: texts.slice(0, 40), colors: palette });
+  };
 
   /* ---------- 3. measurement ---------- */
   if (!stepped) {
@@ -330,6 +670,8 @@
     };
     realSI(sync, 3); // catch new ones between steps, before they run on the real clock
     const settle = () => new Promise((r) => realST(r, 0));
+    // when the components were last read (virtual ms)
+    let partAt = -Infinity;
 
     // in display-frame steps: animation code reads one long jump as a stall (GSAP's lag smoothing drops it, springs
     // overshoot), so a still pre-rolled 1.8 s or a 30 fps frame plays out frame by frame, the way a screen would show it
@@ -354,6 +696,12 @@
       // let React render and commit what the timers and frames changed, then pin any transition that started
       await settle(); await settle();
       sync();
+      // a layer or a hairline has to know about anything new before the frame is captured
+      if (root.classList.contains("__hl") || root.dataset.peel) window.__hlScan?.();
+      if (t - partAt >= 350) {
+        partAt = t;
+        window.__partScan?.();
+      }
       return t;
     };
     window.__now = () => t;

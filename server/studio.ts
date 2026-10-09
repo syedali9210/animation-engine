@@ -97,8 +97,16 @@ async function devtools(chrome: string, profile: string) {
       pending.delete(m.id)
     } else if (m.method === "Runtime.exceptionThrown") errors.push(String(m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text).split("\n")[0])
   }
+  // if Chrome dies mid-job nothing will ever answer: fail what's waiting, or the render queue would hang behind it
+  const fail = (why: string) => {
+    for (const cb of pending.values()) cb({ error: { message: why } })
+    pending.clear()
+  }
+  ws.onclose = () => fail("Chrome closed the connection")
+  proc.on("exit", () => fail("Chrome quit"))
   const send = <T = Record<string, unknown>>(method: string, params: object = {}) =>
     new Promise<T>((resolve, reject) => {
+      if (ws.readyState !== WebSocket.OPEN) return reject(new Error(`${method}: Chrome is gone`))
       const id = ++seq
       pending.set(id, (m) => (m.error ? reject(new Error(`${method}: ${m.error.message}`)) : resolve(m.result as T)))
       ws.send(JSON.stringify({ id, method, params }))
@@ -291,6 +299,32 @@ export function studio(): Plugin {
       if (what === "media" && id && !media.has(id) && /^[0-9a-f-]{36}$/.test(id) && existsSync(join(DIR, `media-${id}.type`)))
         media.set(id, { file: join(DIR, `media-${id}`), type: readFileSync(join(DIR, `media-${id}.type`), "utf8") })
       if (what === "media" && id && media.has(id)) return sendFile(req, res, media.get(id)!.file, media.get(id)!.type)
+      // copy for a film, by Claude, when the dev server has a key (the key never reaches the page)
+      if (what === "copy" && req.method === "POST") {
+        const key = process.env.ANTHROPIC_API_KEY
+        if (!key) return json(res, 503, { error: "No ANTHROPIC_API_KEY: the engine writes the copy itself." })
+        const ctx = JSON.parse((await readBody(req)).toString() || "{}")
+        const system =
+          "You write on-screen copy for short product launch films, in the style of Apple's launch films and the best SaaS launch ads: " +
+          "a 2–4 word hook (the pain or the promise), short noun-phrase feature lines of 2–5 words (like 'Forged aluminum unibody', 'Center Stage front camera'), " +
+          "one feature split into two halves that part around a device ('for smarter | group selfies'), a tagline of at most 8 words, and a 2–4 word call to action. " +
+          "Use only what the context says the product is and shows. Never invent numbers, names, prices or claims; 'proof' is empty unless a figure from the screen supports it. " +
+          'Answer with JSON only: {"kicker","hook","name","tagline","features":[3 or 4 strings],"split","proof","cta"}.'
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({ model: process.env.STUDIO_COPY_MODEL || "claude-sonnet-5-5", max_tokens: 700, system, messages: [{ role: "user", content: JSON.stringify(ctx) }] }),
+        }).catch(() => null)
+        if (!r || !r.ok) return json(res, 502, { error: `Claude didn't answer (${r?.status ?? "offline"})` })
+        const out = (await r.json()) as { content?: { type: string; text?: string }[] }
+        const text = out.content?.find((c) => c.type === "text")?.text ?? ""
+        const m = /\{[\s\S]*\}/.exec(text)
+        try {
+          return json(res, 200, JSON.parse(m ? m[0] : text))
+        } catch {
+          return json(res, 502, { error: "Claude's answer wasn't JSON" })
+        }
+      }
       if (what === "posters" && req.method === "POST") {
         const body = JSON.parse((await readBody(req)).toString() || "{}") as { only?: string[] }
         const run = queue.then(() => posters(server, origin, body.only ?? []))

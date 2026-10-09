@@ -83,25 +83,27 @@ export default function SwiggyHome({ p = defaults }: { p?: Params }) {
       <div ref={scroller} className="no-scrollbar h-full overflow-y-auto overscroll-contain">
         <header className="overflow-hidden rounded-b-[28px] bg-[linear-gradient(115deg,#3b0315,#2c0010)] text-white" style={{ paddingTop: SAFE }}>
           <div className="mx-auto max-w-[1200px]">
-            <LocationHeader />
-            <div className="mt-3">
+            <div data-component="Location">
+              <LocationHeader />
+            </div>
+            <div data-component="Sections" className="mt-3">
               <SectionSelector value={section} onChange={setSection} />
             </div>
           </div>
           <div className="-mt-px rounded-b-[28px] bg-[linear-gradient(180deg,#82012b_0%,#50011d_23%,#4b011d_37%,#3f0118_58%,#2c0011_95%,#22000d_100%)] pb-4 pt-5">
-            <div className={WRAP}>
+            <div data-component="Search" className={WRAP}>
               <SearchBar veg={veg} onVeg={setVeg} />
             </div>
-            <div ref={heroTabs} className={`${WRAP} mt-4`}>
+            <div data-component="Category tabs" ref={heroTabs} className={`${WRAP} mt-4`}>
               <CategoryTabs tone="dark" value={category} onChange={setCategory} />
             </div>
-            <div className="mt-4">
+            <div data-component="Fest banner" className="mt-4">
               <FestBanner />
             </div>
-            <div className="mt-3">
+            <div data-component="Offer cards" className="mt-3">
               <OfferCards />
             </div>
-            <p className="mt-3.5 px-4 text-center text-[12px] font-bold leading-[20px]">
+            <p data-component="Delivery offer" className="mt-3.5 px-4 text-center text-[12px] font-bold leading-[20px]">
               FREE DELIVERY WITH <span className="text-[17px] font-black tracking-[-1px] text-[#ff8a00]">one</span> ABOVE <s className="opacity-80">₹99</s>{" "}
               <span className="text-[#ff9900]">₹49</span>
             </p>
@@ -109,19 +111,19 @@ export default function SwiggyHome({ p = defaults }: { p?: Params }) {
         </header>
 
         <main className="pb-[120px]">
-          <section className={`${WRAP} mt-7`}>
+          <section data-component="Dish row" className={`${WRAP} mt-7`}>
             <DishRow />
           </section>
-          <section aria-label="Top restaurants" className="mt-8">
+          <section data-component="Top restaurants" aria-label="Top restaurants" className="mt-8">
             <RestaurantSection seg={seg} onSeg={setSeg} favs={saved} onFav={save} />
           </section>
-          <div className={`${WRAP} mt-8`}>
+          <div data-component="Promo" className={`${WRAP} mt-8`}>
             <PromoBanner />
           </div>
-          <div className={`${WRAP} mt-8`}>
+          <div data-component="99 Store" className={`${WRAP} mt-8`}>
             <Store99 />
           </div>
-          <section className="mt-8">
+          <section data-component="Restaurant feed" className="mt-8">
             <div className={WRAP}>
               <SectionHeader title="Top 740 restaurants to explore" subtitle="Featured restaurants" />
             </div>
@@ -149,7 +151,9 @@ export default function SwiggyHome({ p = defaults }: { p?: Params }) {
         </div>
       </div>
 
-      <BottomNav value={nav} onChange={setNav} hidden={stuck} inset={34} ms={p.navMs} ease={p.easing} className="absolute inset-x-0 bottom-0 z-40" />
+      <div data-component="Tab bar" className="absolute inset-x-0 bottom-0 z-40">
+        <BottomNav value={nav} onChange={setNav} hidden={stuck} inset={34} ms={p.navMs} ease={p.easing} />
+      </div>
     </div>
   )
 }

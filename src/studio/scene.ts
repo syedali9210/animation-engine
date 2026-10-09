@@ -214,8 +214,11 @@ class ContactShadow {
 /** One device in the scene, and where it stands in the group. `key` names its screen, which outlives rebuilds. */
 export type Placed = { key: string; id: DeviceId; posture: Posture; landscape: boolean; finish: Finish; screenBg: string; slot: Slot }
 export type Look = { shadow: boolean; reflections: number; light: Light }
-/** Where the devices sit in the frame, how they come in, and how far into the scene we are (seconds). */
-export type Framing = { at: Slot; arrival: "none" | "drop" | "slide"; t: number }
+/** Where the devices sit in the frame, how they come in, how far apart they're taken (0 whole, 1 in parts), and how far
+    into the scene we are (seconds). */
+export type Framing = { at: Slot; arrival: "none" | "drop" | "slide"; t: number; apart?: number }
+/** A device part's label point, where the camera sees it: CSS px in the stage, and which way from the device it sits. */
+export type PartMark = { key: string; name: string; x: number; y: number; side: -1 | 1 }
 
 type Held = { key: string; slot: Slot; built: Built; group: THREE.Group; home: THREE.Vector3 }
 type Screen = { el: HTMLDivElement; obj: CSS3DObject }
@@ -241,6 +244,7 @@ export class StudioScene {
   private framing: Framing = { at: "center", arrival: "none", t: 99 }
   private look: Look = { shadow: true, reflections: 1, light: "studio" }
   private size = { w: 1, h: 1 }
+  private marks: PartMark[] = []
 
   constructor(host: HTMLElement, { preserve = false } = {}) {
     this.el = document.createElement("div")
@@ -415,7 +419,20 @@ export class StudioScene {
     cam.updateProjectionMatrix()
     this.stage.rotation.set(rad(p.pitch), rad(p.yaw), rad(p.roll), "YXZ")
     this.stage.updateMatrixWorld(true)
-    const L = this.local
+    const L = this.local.clone()
+    // taken apart, the parts travel: the box grows by how far they go (the whole group's box, moved with each part)
+    const apart = this.framing.apart ?? 0
+    if (apart > 0) {
+      const base = L.clone()
+      for (const h of this.held) {
+        const s = h.built.root.scale.x
+        for (const pt of h.built.parts) {
+          const v = pt.away.clone().multiplyScalar(apart * s).applyQuaternion(h.group.quaternion)
+          L.expandByPoint(base.min.clone().add(v))
+          L.expandByPoint(base.max.clone().add(v))
+        }
+      }
+    }
     const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => new THREE.Vector3(i & 1 ? L.max.x : L.min.x, i & 2 ? L.max.y : L.min.y, i & 4 ? L.max.z : L.min.z).applyMatrix4(this.stage.matrixWorld))
     const posed = new THREE.Box3().setFromPoints(corners)
     const center = L.getCenter(new THREE.Vector3()).applyMatrix4(this.stage.matrixWorld)
@@ -451,6 +468,7 @@ export class StudioScene {
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion)
     const halfH = Math.tan(rad(p.fov / 2)) * cam.position.distanceTo(center)
     cam.position.addScaledVector(up, -p.rise * 2 * halfH)
+    cam.position.addScaledVector(right, -(p.pan ?? 0) * 2 * halfH * cam.aspect)
     if (side) cam.position.addScaledVector(right, -side * 0.5 * halfH * cam.aspect)
     cam.updateMatrixWorld(true)
     return posed
@@ -470,8 +488,15 @@ export class StudioScene {
     })
   }
 
+  /** Where each part's label points this frame: only while the devices are taken apart. */
+  partMarks() {
+    return this.marks
+  }
+
   render() {
     if (!this.held.length || !this.pose) return
+    const apart = this.framing.apart ?? 0
+    for (const h of this.held) for (const pt of h.built.parts) pt.obj.position.copy(pt.away).multiplyScalar(apart)
     const box = this.frame(this.pose)
     this.arrive()
     if (this.look.shadow) {
@@ -503,6 +528,18 @@ export class StudioScene {
     }
     this.renderer.render(this.scene, this.camera)
     this.css.render(this.scene, this.camera)
+    // label points, seen through this frame's camera
+    this.marks = []
+    if (apart > 0.02) {
+      const mid = new THREE.Vector3()
+      for (const h of this.held) mid.add(new THREE.Vector3().setFromMatrixPosition(h.group.matrixWorld))
+      mid.divideScalar(this.held.length).project(this.camera)
+      for (const h of this.held)
+        for (const pt of h.built.parts) {
+          const v = pt.obj.localToWorld(pt.at.clone()).project(this.camera)
+          this.marks.push({ key: `${h.key}:${pt.name}`, name: pt.name, x: ((v.x + 1) / 2) * this.size.w, y: ((1 - v.y) / 2) * this.size.h, side: v.x < mid.x ? -1 : 1 })
+        }
+    }
   }
 
   dispose() {

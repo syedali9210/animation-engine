@@ -26,6 +26,7 @@ export const CATEGORIES = [
   "Celebration",
   "UI Patterns",
   "Swiggy App",
+  "Launch films",
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 
@@ -69,6 +70,8 @@ export interface AnimMeta {
   /** The library card's still (npm run posters): `at` ms into the animation (default 1800), cropped around `y`, a
       fraction of the screen's height (default: the top for a full-screen app, else the middle). */
   poster?: { at?: number; y?: number };
+  /** The product it's from, when it's one app's screen ("Swiggy"): the name a launch film uses for it. */
+  brand?: string;
 }
 
 const found = import.meta.glob<{ default: Omit<AnimMeta, "id"> }>("./animations/*/meta.ts", { eager: true });

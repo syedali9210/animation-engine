@@ -1,0 +1,13 @@
+/* The launch films' type: Geist and Geist Mono, served with the engine (never fetched at export time). */
+@font-face {
+  font-family: "Geist";
+  src: url("/anim/_film/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/anim/_film/fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: block;
+}

@@ -25,8 +25,20 @@ export type Built = {
   /** the studio glare on each screen: the scene slides it across the glass as the device turns */
   glare: Glare[]
   sheen: THREE.MeshPhysicalMaterial[]
+  /** what it comes apart into, for a teardown: each part's group, the way it travels when taken apart (in the device's
+      own points), and the point on it a label names */
+  parts: Part[]
 }
 export type Glare = { mat: THREE.MeshBasicMaterial; tex: THREE.Texture }
+export type Part = { name: string; obj: THREE.Object3D; away: THREE.Vector3; at: THREE.Vector3 }
+
+/** A part of a device: a group of its own, so a teardown can move it. */
+function part(parent: THREE.Object3D, parts: Part[], name: string, away: [number, number, number], at: [number, number, number]) {
+  const obj = new THREE.Group()
+  parent.add(obj)
+  parts.push({ name, obj, away: new THREE.Vector3(...away), at: new THREE.Vector3(...at) })
+  return obj
+}
 
 /* ---------------- geometry ---------------- */
 
@@ -66,6 +78,17 @@ function slab(W: number, H: number, D: number, R: Radii, e: number, curve = 28) 
 }
 
 const flat = (w: number, h: number, r: Radii) => new THREE.ShapeGeometry(roundRect(w, h, r), 32)
+
+/** The band of a phone: a slab's outline with its middle open, front and back, so a teardown shows what's inside. The
+    wall is its thickness in plan; the edges are rounded like a slab's. */
+function frameBand(W: number, H: number, D: number, R: number, e: number, wall: number) {
+  const outer = roundRect(W - 2 * e, H - 2 * e, R - e)
+  // the bevel grows the solid by e all round, the opening included, so the hole is drawn e wider
+  outer.holes.push(roundRect(W - 2 * wall + 2 * e, H - 2 * wall + 2 * e, Math.max(2, R - wall + e)))
+  const g = new THREE.ExtrudeGeometry(outer, { depth: D - 2 * e, bevelEnabled: true, bevelThickness: e, bevelSize: e, bevelSegments: 8, curveSegments: 28 })
+  g.translate(0, 0, -(D - 2 * e) / 2)
+  return g
+}
 
 function add(parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material | THREE.Material[], x = 0, y = 0, z = 0) {
   const m = new THREE.Mesh(geo, mat)
@@ -149,6 +172,14 @@ function materials(f: Finish) {
     hole: hole(),
     sheen: sheenMaterial(),
     glares: [] as Glare[],
+    // what's inside, for a teardown: the board, its chip and shields, the cells, the dark faces inside the glass
+    pcb: new THREE.MeshPhysicalMaterial({ color: 0x18201c, metalness: 0.1, roughness: 0.55, clearcoat: 0.4, clearcoatRoughness: 0.5 }),
+    chip: new THREE.MeshPhysicalMaterial({ color: 0x9c9ea4, metalness: 1, roughness: 0.26 }),
+    shield: new THREE.MeshPhysicalMaterial({ color: 0xb4b6bb, metalness: 1, roughness: 0.42 }),
+    ic: new THREE.MeshPhysicalMaterial({ color: 0x0c0c0e, metalness: 0.2, roughness: 0.5 }),
+    cell: new THREE.MeshPhysicalMaterial({ color: 0x2b2c31, metalness: 0.3, roughness: 0.46, clearcoat: 0.3, clearcoatRoughness: 0.4 }),
+    inside: new THREE.MeshPhysicalMaterial({ color: 0x17171a, metalness: 0.2, roughness: 0.7 }),
+    coil: new THREE.MeshPhysicalMaterial({ color: 0xb8744a, metalness: 1, roughness: 0.32 }),
   }
 }
 type Mats = ReturnType<typeof materials>
@@ -202,20 +233,50 @@ function dot(parent: THREE.Object3D, mat: THREE.Material, x: number, y: number, 
 
 const IPHONE = { W: 431.6, H: 903.1, D: 49.8, R: 76.8, e: 7, screen: { w: 402, h: 874, r: 62 } }
 
+/** The logic board: a dark board with the chip, its shields and a few packages on it, in the top half. */
+function board(parent: THREE.Object3D, m: Mats, w: number, h: number, y: number, z: number) {
+  add(parent, slab(w, h, 3, 16, 1), m.pcb, 0, y, z)
+  add(parent, slab(76, 76, 4, 7, 1.2), m.chip, -w * 0.18, y + h * 0.06, z + 3.4)
+  add(parent, slab(w * 0.36, h * 0.42, 3, 6, 1), m.shield, w * 0.2, y + h * 0.12, z + 3)
+  add(parent, slab(w * 0.22, h * 0.24, 3, 4, 1), m.shield, w * 0.24, y - h * 0.26, z + 3)
+  for (const [x, yy, a, b] of [
+    [-0.36, -0.3, 34, 22],
+    [-0.04, -0.32, 26, 26],
+    [-0.36, 0.3, 30, 18],
+  ])
+    add(parent, slab(a, b, 2.4, 2, 0.6), m.ic, w * x, y + h * yy, z + 2.6)
+}
+
 function iphone(m: Mats, landscape: boolean): Built {
   const { W, H, D, R, e, screen } = IPHONE
   const root = new THREE.Group()
   const body = new THREE.Group()
   root.add(body)
-  add(body, slab(W, H, D, R, e), m.metal)
+  const parts: Part[] = []
   const cap = { w: W - 2 * e - 1, h: H - 2 * e - 1, r: R - e - 0.5 }
-  front(body, m, cap, screen, D / 2)
-  // Dynamic Island: 126 × 37 pt, 11 pt below the top of the screen
-  add(body, flat(126, 37, 18.5), m.black, 0, screen.h / 2 - 11 - 18.5, D / 2 + 0.16)
-  // back glass and the camera plateau (top right seen from the front: top left from behind)
-  add(body, flat(cap.w, cap.h, cap.r), m.back, 0, 0, -D / 2 - 0.02).rotation.y = Math.PI
   const plateau = { s: 214, x: W / 2 - 13 - 107, y: H / 2 - 13 - 107, h: 7 }
-  add(body, slab(plateau.s, plateau.s, plateau.h * 2, 58, 3), m.gloss, plateau.x, plateau.y, -D / 2)
+  // taken apart they spread along the depth, front to back: display, board, frame, battery, back glass, cameras
+  const display = part(body, parts, "Display", [0, H * 0.05, H * 0.21], [W * 0.38, H * 0.36, D / 2])
+  const logic = part(body, parts, "Logic board", [0, H * 0.025, H * 0.105], [-W * 0.13, H * 0.3, D * 0.2])
+  const frame = part(body, parts, "Frame", [0, 0, 0], [W / 2, -H * 0.1, 0])
+  const cells = part(body, parts, "Battery", [0, -H * 0.025, -H * 0.105], [W * 0.3, -H * 0.2, -D * 0.1])
+  const back = part(body, parts, "Back glass", [0, -H * 0.05, -H * 0.21], [-W * 0.32, -H * 0.3, -D / 2])
+  const optics = part(body, parts, "Camera system", [0, -H * 0.075, -H * 0.31], [plateau.x - 60, plateau.y - 70, -D / 2 - plateau.h])
+
+  add(frame, frameBand(W, H, D, R, e, 9), m.metal)
+  front(display, m, cap, screen, D / 2)
+  // the panel under the glass, so the display reads as a solid part when it's lifted out
+  add(display, slab(cap.w - 6, cap.h - 6, 5, cap.r - 3, 1.5), m.inside, 0, 0, D / 2 - 3.2)
+  // Dynamic Island: 126 × 37 pt, 11 pt below the top of the screen
+  add(display, flat(126, 37, 18.5), m.black, 0, screen.h / 2 - 11 - 18.5, D / 2 + 0.16)
+  board(logic, m, W * 0.76, H * 0.3, H * 0.24, D * 0.12)
+  add(cells, slab(W * 0.76, H * 0.48, D * 0.42, 22, 2), m.cell, 0, -H * 0.17, -D * 0.06)
+  // back glass, its inside face, and the charging coil behind it
+  add(back, flat(cap.w, cap.h, cap.r), m.back, 0, 0, -D / 2 - 0.02).rotation.y = Math.PI
+  add(back, flat(cap.w, cap.h, cap.r), m.inside, 0, 0, -D / 2 + 0.6)
+  add(back, new THREE.RingGeometry(118, 142, 72), m.coil, 0, -H * 0.06, -D / 2 + 1)
+  // the camera plateau (top right seen from the front: top left from behind)
+  add(optics, slab(plateau.s, plateau.s, plateau.h * 2, 58, 3), m.gloss, plateau.x, plateau.y, -D / 2)
   const face = -D / 2 - plateau.h
   // two cameras down the outer column, the telephoto between them on the inner one (seen from behind: left, right)
   for (const [lx, ly] of [
@@ -223,27 +284,27 @@ function iphone(m: Mats, landscape: boolean): Built {
     [52, -52],
     [-50, 0],
   ])
-    camera(body, m, plateau.x + lx, plateau.y + ly, face, 46, 9)
-  dot(body, m.flash, plateau.x - 52, plateau.y + 64, face - 0.1, 12)
-  dot(body, m.black, plateau.x - 52, plateau.y - 64, face - 0.1, 10)
-  dot(body, m.black, plateau.x - 6, plateau.y + 84, face - 0.1, 2.6)
+    camera(optics, m, plateau.x + lx, plateau.y + ly, face, 46, 9)
+  dot(optics, m.flash, plateau.x - 52, plateau.y + 64, face - 0.1, 12)
+  dot(optics, m.black, plateau.x - 52, plateau.y - 64, face - 0.1, 10)
+  dot(optics, m.black, plateau.x - 6, plateau.y + 84, face - 0.1, 2.6)
   // Action button, volume, side button, Camera Control (sapphire, flush)
   for (const b of PHONE_BUTTONS) {
     const x = (b.side === "left" ? -1 : 1) * (W / 2 + 0.6)
     const y = H / 2 - b.at - b.len / 2
-    if (b.at === 600) button(body, m.black, "y", b.len, W / 2 - 0.4, y, 13, 2)
-    else button(body, m.metal, "y", b.len, x, y, 15)
+    if (b.at === 600) button(frame, m.black, "y", b.len, W / 2 - 0.4, y, 13, 2)
+    else button(frame, m.metal, "y", b.len, x, y, 15)
   }
   // antenna bands across the band, near each corner
-  for (const sx of [-1, 1]) for (const sy of [-1, 1]) add(body, new THREE.BoxGeometry(1.4, 3.2, D - 2 * e), m.seam, sx * (W / 2 - 0.2), sy * (H / 2 - 112), 0)
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) add(frame, new THREE.BoxGeometry(1.4, 3.2, D - 2 * e), m.seam, sx * (W / 2 - 0.2), sy * (H / 2 - 112), 0)
   const anchor = new THREE.Object3D()
   anchor.position.set(0, 0, D / 2 + 0.08)
-  body.add(anchor)
+  display.add(anchor)
   if (landscape) {
     body.rotation.z = Math.PI / 2 // the island to the left
     anchor.rotation.z = -Math.PI / 2
   }
-  return { root, anchor, slot: landscape ? { w: screen.h, h: screen.w } : { w: screen.w, h: screen.h }, radius: `${screen.r}px`, rests: "edge", glare: m.glares, sheen: [m.sheen] }
+  return { root, anchor, slot: landscape ? { w: screen.h, h: screen.w } : { w: screen.w, h: screen.h }, radius: `${screen.r}px`, rests: "edge", glare: m.glares, sheen: [m.sheen], parts }
 }
 
 /* ---------------- iPad Pro 11″ ---------------- */
@@ -255,29 +316,39 @@ function ipad(m: Mats, landscape: boolean): Built {
   const root = new THREE.Group()
   const body = new THREE.Group()
   root.add(body)
-  add(body, slab(W, H, D, R, e), m.metal)
-  front(body, m, { w: W - 2 * e - 1, h: H - 2 * e - 1, r: R - e - 0.5 }, screen, D / 2)
+  const parts: Part[] = []
+  const cap = { w: W - 2 * e - 1, h: H - 2 * e - 1, r: R - e - 0.5 }
+  const display = part(body, parts, "Display", [0, H * 0.04, H * 0.19], [W * 0.36, H * 0.38, D / 2])
+  const logic = part(body, parts, "Logic board", [0, H * 0.025, H * 0.12], [0, H * 0.18, D * 0.2])
+  const cells = part(body, parts, "Battery", [0, H * 0.01, H * 0.06], [-W * 0.3, -H * 0.12, D * 0.2])
+  const shell = part(body, parts, "Enclosure", [0, 0, 0], [W / 2, -H * 0.3, 0])
+  add(shell, slab(W, H, D, R, e), m.metal)
+  front(display, m, cap, screen, D / 2)
+  add(display, slab(cap.w - 6, cap.h - 6, 4, cap.r - 3, 1.2), m.inside, 0, 0, D / 2 - 2.6)
   // the front camera, on the landscape edge (the right side in portrait)
-  add(body, new THREE.CircleGeometry(4.2, 32), m.lens, W / 2 - 22, 0, D / 2 + 0.16)
-  add(body, new THREE.RingGeometry(4.2, 5.4, 32), m.black, W / 2 - 22, 0, D / 2 + 0.15)
+  add(display, new THREE.CircleGeometry(4.2, 32), m.lens, W / 2 - 22, 0, D / 2 + 0.16)
+  add(display, new THREE.RingGeometry(4.2, 5.4, 32), m.black, W / 2 - 22, 0, D / 2 + 0.15)
+  // inside, just under the display: the board down the middle, a cell either side
+  board(logic, m, W * 0.2, H * 0.62, 0, D * 0.14)
+  for (const sx of [-1, 1]) add(cells, slab(W * 0.33, H * 0.7, D * 0.5, 16, 2), m.cell, sx * W * 0.28, -H * 0.04, D * 0.06)
   for (const b of TABLET_BUTTONS) {
-    if (b.side === "top") button(body, m.metal, "x", b.len, -W / 2 + b.at + b.len / 2, H / 2 + 0.5, 9, 2.4)
-    else button(body, m.metal, "y", b.len, W / 2 + 0.5, H / 2 - b.at - b.len / 2, 9, 2.4)
+    if (b.side === "top") button(shell, m.metal, "x", b.len, -W / 2 + b.at + b.len / 2, H / 2 + 0.5, 9, 2.4)
+    else button(shell, m.metal, "y", b.len, W / 2 + 0.5, H / 2 - b.at - b.len / 2, 9, 2.4)
   }
   // the camera bump behind, top left seen from the back: the wide camera, LiDAR under it, the flash beside
   const bump = { x: W / 2 - 30 - 56, y: H / 2 - 30 - 90 }
-  add(body, slab(112, 180, 8, 40, 3), m.back, bump.x, bump.y, -D / 2 - 2)
-  camera(body, m, bump.x, bump.y + 40, -D / 2 - 6, 34, 6)
-  dot(body, m.black, bump.x + 6, bump.y - 44, -D / 2 - 6.1, 14)
-  dot(body, m.flash, bump.x - 30, bump.y - 44, -D / 2 - 6.1, 8)
+  add(shell, slab(112, 180, 8, 40, 3), m.back, bump.x, bump.y, -D / 2 - 2)
+  camera(shell, m, bump.x, bump.y + 40, -D / 2 - 6, 34, 6)
+  dot(shell, m.black, bump.x + 6, bump.y - 44, -D / 2 - 6.1, 14)
+  dot(shell, m.flash, bump.x - 30, bump.y - 44, -D / 2 - 6.1, 8)
   const anchor = new THREE.Object3D()
   anchor.position.set(0, 0, D / 2 + 0.08)
-  body.add(anchor)
+  display.add(anchor)
   if (landscape) {
     body.rotation.z = Math.PI / 2
     anchor.rotation.z = -Math.PI / 2
   }
-  return { root, anchor, slot: landscape ? { w: screen.h, h: screen.w } : { w: screen.w, h: screen.h }, radius: "", rests: "edge", glare: m.glares, sheen: [m.sheen] }
+  return { root, anchor, slot: landscape ? { w: screen.h, h: screen.w } : { w: screen.w, h: screen.h }, radius: "", rests: "edge", glare: m.glares, sheen: [m.sheen], parts }
 }
 
 /* ---------------- MacBook Pro 14″ ---------------- */
@@ -354,29 +425,34 @@ function grille() {
 function macbook(m: Mats): Built {
   const { W, depth, base, lidH, lidT, R, open, screen, bottom } = MAC
   const root = new THREE.Group()
+  const parts: Part[] = []
+  const deck = part(root, parts, "Keyboard", [0, 150, 0], [-W * 0.3, base + 4, -depth * 0.08])
+  const padPart = part(root, parts, "Trackpad", [0, 90, 120], [W * 0.18, base + 2, depth / 2 - 120])
+  const enclosure = part(root, parts, "Enclosure", [0, 0, 0], [W / 2, base / 2, depth * 0.1])
+  const screenPart = part(root, parts, "Display", [0, 140, -260], [W * 0.36, base + lidH * 0.7, -depth / 2])
   // base, lying in the xz plane: top surface at y = base, front edge towards +z
-  const shell = add(root, slab(W, depth, base, R, 5), m.metal, 0, base / 2, 0)
+  const shell = add(enclosure, slab(W, depth, base, R, 5), m.metal, 0, base / 2, 0)
   shell.rotation.x = -Math.PI / 2
   const top = base + 0.05
   const kb = keyboard(m)
   const kbZ = -depth / 2 + 58 // the keyboard's back edge, clear of the hinge
   // the black well the keys sit in
-  const well = add(root, flat(kb.width + 28, kb.depth + 26, 14), new THREE.MeshPhysicalMaterial({ color: 0x0b0b0d, roughness: 0.85 }), 0, top, kbZ + kb.depth / 2)
+  const well = add(deck, flat(kb.width + 28, kb.depth + 26, 14), new THREE.MeshPhysicalMaterial({ color: 0x0b0b0d, roughness: 0.85 }), 0, top, kbZ + kb.depth / 2)
   well.rotation.x = -Math.PI / 2
-  add(root, kb.geo, new THREE.MeshPhysicalMaterial({ color: 0x111113, roughness: 0.55, clearcoat: 0.2, clearcoatRoughness: 0.6 }), 0, top + 2.6, kbZ)
+  add(deck, kb.geo, new THREE.MeshPhysicalMaterial({ color: 0x111113, roughness: 0.55, clearcoat: 0.2, clearcoatRoughness: 0.6 }), 0, top + 2.6, kbZ)
   // speaker grilles either side of the keyboard
   const holes = grille()
   for (const sx of [-1, 1]) {
-    const s = add(root, flat(64, kb.depth + 4, 10), new THREE.MeshPhysicalMaterial({ color: 0x0a0a0b, roughness: 0.9, transparent: true, alphaMap: holes, depthWrite: false }), sx * (kb.width / 2 + 62), top + 0.02, kbZ + kb.depth / 2)
+    const s = add(enclosure, flat(64, kb.depth + 4, 10), new THREE.MeshPhysicalMaterial({ color: 0x0a0a0b, roughness: 0.9, transparent: true, alphaMap: holes, depthWrite: false }), sx * (kb.width / 2 + 62), top + 0.02, kbZ + kb.depth / 2)
     s.rotation.x = -Math.PI / 2
   }
   // the trackpad: glass in the base's own colour, a shade smoother than the blasted aluminium around it
-  const pad = add(root, flat(752, 460, 26), new THREE.MeshPhysicalMaterial({ color: new THREE.Color(m.metal.color).multiplyScalar(0.97), metalness: 1, roughness: 0.22, clearcoat: 0.4, clearcoatRoughness: 0.2 }), 0, top + 0.02, depth / 2 - 34 - 230)
+  const pad = add(padPart, flat(752, 460, 26), new THREE.MeshPhysicalMaterial({ color: new THREE.Color(m.metal.color).multiplyScalar(0.97), metalness: 1, roughness: 0.22, clearcoat: 0.4, clearcoatRoughness: 0.2 }), 0, top + 0.02, depth / 2 - 34 - 230)
   pad.rotation.x = -Math.PI / 2
   // hinge, then the lid on it
   const pivot = new THREE.Group()
   pivot.position.set(0, base - 5, -depth / 2 + 16)
-  root.add(pivot)
+  screenPart.add(pivot)
   const hinge = add(pivot, new THREE.CylinderGeometry(13, 13, W - 2 * R - 60, 32), new THREE.MeshPhysicalMaterial({ color: 0x1b1b1d, metalness: 0.7, roughness: 0.4 }))
   hinge.rotation.z = Math.PI / 2
   const lid = new THREE.Group()
@@ -391,7 +467,7 @@ function macbook(m: Mats): Built {
   const anchor = new THREE.Object3D()
   anchor.position.set(0, sy, lidT / 2 + 0.08)
   lid.add(anchor)
-  return { root, anchor, slot: { w: screen.w, h: screen.h }, radius: "", rests: "base", glare: m.glares, sheen: [m.sheen] }
+  return { root, anchor, slot: { w: screen.w, h: screen.h }, radius: "", rests: "base", glare: m.glares, sheen: [m.sheen], parts }
 }
 
 /* ---------------- iPhone Duo ---------------- */
@@ -469,7 +545,7 @@ function duo(m: Mats, posture: Posture, landscape: boolean, screenBg: string): B
     anchor.rotation.z += Math.PI / 2
     slot = { w: slot.h, h: slot.w }
   }
-  return { root, anchor, slot, radius, rests: "edge", glare: m.glares, sheen: [m.sheen] }
+  return { root, anchor, slot, radius, rests: "edge", glare: m.glares, sheen: [m.sheen], parts: [] }
 }
 
 /* ---------------- entry ---------------- */

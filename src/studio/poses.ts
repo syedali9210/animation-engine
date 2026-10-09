@@ -19,11 +19,13 @@ export type Pose = {
   lift: number
   /** fraction of the frame to shift the device up (+) or down */
   rise: number
+  /** fraction of the frame to shift the device right (+) or left: with a close zoom, which part of it fills the shot */
+  pan: number
 }
 
-export const BASE: Pose = { yaw: 0, pitch: 0, roll: 0, elev: 6, azim: 0, fov: 26, zoom: 1, lift: 50, rise: 0 }
+export const BASE: Pose = { yaw: 0, pitch: 0, roll: 0, elev: 6, azim: 0, fov: 26, zoom: 1, lift: 50, rise: 0, pan: 0 }
 
-export type AngleId = "front" | "hero" | "heroLeft" | "tilt" | "float" | "flat" | "low" | "side"
+export type AngleId = "front" | "hero" | "heroLeft" | "tilt" | "float" | "flat" | "low" | "side" | "back" | "macro"
 
 export const ANGLES: { id: AngleId; name: string; pose: Partial<Pose>; mac?: Partial<Pose> }[] = [
   { id: "hero", name: "¾ right", pose: { yaw: -26, elev: 9, roll: 0 }, mac: { yaw: -24, elev: 18 } },
@@ -34,6 +36,9 @@ export const ANGLES: { id: AngleId; name: string; pose: Partial<Pose>; mac?: Par
   { id: "float", name: "Floating", pose: { yaw: -20, pitch: -12, roll: 8, elev: 16, lift: 200 }, mac: { yaw: -20, roll: 4, elev: 24, lift: 120 } },
   { id: "flat", name: "Flat lay", pose: { pitch: -90, roll: -16, elev: 62, lift: 0, fov: 22 }, mac: { yaw: -18, elev: 64, fov: 22 } },
   { id: "low", name: "Low", pose: { yaw: 18, pitch: 6, elev: -6, fov: 30 }, mac: { yaw: 16, elev: 6, fov: 30 } },
+  { id: "back", name: "Back", pose: { yaw: 154, elev: 8 }, mac: { yaw: 158, elev: 18 } },
+  // close on the camera: the launch films' cold open, the plateau filling the frame
+  { id: "macro", name: "Macro", pose: { yaw: 196, pitch: 8, elev: 10, zoom: 2.5, rise: -0.7, pan: 0.12, fov: 22 }, mac: { yaw: 160, elev: 22, zoom: 2.2, rise: -0.3, fov: 22 } },
 ]
 
 export function angle(id: AngleId, device: DeviceId): Pose {
@@ -43,7 +48,7 @@ export function angle(id: AngleId, device: DeviceId): Pose {
 
 /* ---------------- moves ---------------- */
 
-export type MotionId = "still" | "reveal" | "spin" | "turn" | "pull" | "orbit" | "sway" | "push" | "rise" | "tour"
+export type MotionId = "still" | "reveal" | "spin" | "turn" | "pull" | "orbit" | "sway" | "push" | "rise" | "tour" | "drift"
 
 export const MOTIONS: { id: MotionId; name: string; hint: string; loops?: boolean }[] = [
   { id: "still", name: "Still", hint: "The device holds the shot; only the screen moves." },
@@ -56,6 +61,7 @@ export const MOTIONS: { id: MotionId; name: string; hint: string; loops?: boolea
   { id: "push", name: "Push in", hint: "The camera moves in towards the screen." },
   { id: "rise", name: "Rise", hint: "Comes up from below the frame and settles, then holds." },
   { id: "tour", name: "Tour", hint: "Three angles in one take: the shot, its mirror, then face-on and close." },
+  { id: "drift", name: "Drift", hint: "A slow sideways glide with a slight push: for close-ups and macro shots." },
 ]
 
 const clamp = (x: number) => Math.min(1, Math.max(0, x))
@@ -101,6 +107,10 @@ export function move(id: MotionId, p: Pose, t: number, dur: number): Pose {
     case "rise": {
       const k = expoOut(clamp(t / 1.1))
       return { ...p, rise: p.rise - 0.55 * (1 - k), pitch: p.pitch + 14 * (1 - k), yaw: p.yaw - 10 * (1 - k) }
+    }
+    case "drift": {
+      const k = sineInOut(u)
+      return { ...p, pan: p.pan + 0.05 - 0.1 * k, zoom: p.zoom * (1 + 0.07 * k), yaw: p.yaw - 4 + 8 * k }
     }
     case "tour": {
       // hold, glide, hold, glide, hold: each glide in-out, overlapping nothing, so every stop reads as a shot

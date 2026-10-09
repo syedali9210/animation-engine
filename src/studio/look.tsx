@@ -83,16 +83,73 @@ function effectStyle(effect: Effect, ink: string, amount: number): CSSProperties
   }
 }
 
-/** The background: the fill, then the effect over it. */
-export function Backdrop({ fill, effect, ink, amount }: { fill: string; effect: Effect; ink: string; amount: number }) {
-  const css = fillCss(fill)
-  const color = /^#[0-9a-f]{6}$/i.test(ink) ? ink : isDark(fill) ? "#ffffff" : "#000000"
+/** A technical drawing's sheet, the way the launch films lay out a teardown: a ruled border inset from the edge, zone
+    references down the sides (A–D) and along the top and bottom (1–6), a faint grid, and a title block. */
+function Sheet({ ink, amount, title }: { ink: string; amount: number; title?: string }) {
+  const line = (w: number) => `${w}cqw solid ${ink}`
+  const mono = "Geist Mono, ui-monospace, monospace"
+  const zones = (n: number) => [...Array(n).keys()]
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: css === "transparent" ? undefined : css }}>
-      {effect !== "none" && <div className="absolute inset-0" style={effectStyle(effect, color, amount)} />}
+    <div className="absolute" style={{ inset: "2.2cqw", opacity: 0.35 + Math.min(1, amount) * 0.5 }}>
+      <div
+        className="absolute inset-0"
+        style={{
+          border: line(0.1),
+          backgroundImage: `linear-gradient(to right, color-mix(in oklab, ${ink} 7%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in oklab, ${ink} 7%, transparent) 1px, transparent 1px)`,
+          backgroundSize: "2.5cqw 2.5cqw",
+          backgroundPosition: "1.2cqw 1.2cqw",
+        }}
+      />
+      <div className="absolute" style={{ inset: "1.2cqw", border: line(0.06) }} />
+      {zones(4).map((i) => (
+        <div key={`r${i}`}>
+          {[0, 1].map((side) => (
+            <span key={side} className="absolute -translate-y-1/2 text-center" style={{ top: `${((i + 0.5) / 4) * 100}%`, [side ? "right" : "left"]: 0, width: "1.2cqw", fontSize: "0.62cqw", fontFamily: mono, color: ink }}>
+              {"ABCD"[i]}
+            </span>
+          ))}
+          {i > 0 && [0, 1].map((side) => <span key={`t${side}`} className="absolute" style={{ top: `${(i / 4) * 100}%`, [side ? "right" : "left"]: 0, width: "1.2cqw", borderTop: line(0.06) }} />)}
+        </div>
+      ))}
+      {zones(6).map((i) => (
+        <div key={`c${i}`}>
+          {[0, 1].map((side) => (
+            <span key={side} className="absolute -translate-x-1/2 text-center" style={{ left: `${((i + 0.5) / 6) * 100}%`, [side ? "bottom" : "top"]: 0, height: "1.2cqw", lineHeight: "1.2cqw", fontSize: "0.62cqw", fontFamily: mono, color: ink }}>
+              {i + 1}
+            </span>
+          ))}
+          {i > 0 && [0, 1].map((side) => <span key={`t${side}`} className="absolute" style={{ left: `${(i / 6) * 100}%`, [side ? "bottom" : "top"]: 0, height: "1.2cqw", borderLeft: line(0.06) }} />)}
+        </div>
+      ))}
+      <div className="absolute" style={{ right: "1.2cqw", bottom: "1.2cqw", width: "20cqw", height: "4.6cqw", borderLeft: line(0.06), borderTop: line(0.06), fontFamily: mono, color: ink, fontSize: "0.6cqw", letterSpacing: "0.12em" }}>
+        <div className="absolute inset-x-0" style={{ top: "50%", borderTop: line(0.05) }} />
+        <div className="absolute inset-y-0" style={{ left: "62%", borderLeft: line(0.05) }} />
+        <span className="absolute" style={{ left: "0.8cqw", top: "0.55cqw" }}>{(title || "Assembly").toUpperCase()}</span>
+        <span className="absolute" style={{ left: "0.8cqw", bottom: "0.55cqw" }}>EXPLODED VIEW</span>
+        <span className="absolute" style={{ left: "64%", top: "0.55cqw" }}>SCALE 1:1</span>
+        <span className="absolute" style={{ left: "64%", bottom: "0.55cqw" }}>SHEET 1/1</span>
+      </div>
     </div>
   )
 }
+
+/** The background: the fill, then the effect over it. */
+export function Backdrop({ fill, effect, ink, amount, title, style }: { fill: string; effect: Effect; ink: string; amount: number; title?: string; style?: CSSProperties }) {
+  const css = fillCss(fill)
+  const color = /^#[0-9a-f]{6}$/i.test(ink) ? ink : isDark(fill) ? "#ffffff" : "#000000"
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: css === "transparent" ? undefined : css, ...style }}>
+      {effect === "sheet" ? (
+        <Sheet ink={/^#[0-9a-f]{6}$/i.test(ink) ? ink : isDark(fill) ? "#c4cede" : "#2b2b30"} amount={amount} title={title} />
+      ) : (
+        effect !== "none" && <div className="absolute inset-0" style={effectStyle(effect, color, amount)} />
+      )}
+    </div>
+  )
+}
+
+/** Ink for labels and leader lines over a ground. */
+export const labelInk = (fill: string) => (isDark(fill) ? "#e8eaef" : "#1d1d21")
 
 /* ---------------- hairline ---------------- */
 

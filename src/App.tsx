@@ -47,10 +47,12 @@ import { detectHost, suggest, type Suggestion } from "./suggest";
 import { downloadZip } from "./exporter";
 import { SIZES, type RenderConfig } from "./studio/config";
 import { serverMedia, useExport, type ExportKind } from "./studio/export";
-import { StudioExport, StudioInspector, inspectorTitle } from "./studio/Studio";
+import { BrandDialog, StudioExport, StudioInspector, inspectorTitle } from "./studio/Studio";
 import { AnimPicker, BG, LayersPanel, TemplateDialog } from "./studio/Layers";
-import { addDevice, component as newComponent, defaultComp, devicesOf, scene as newScene, starts, text as newText, total, uid, type Comp, type Template } from "./studio/comp";
+import { addDevice, breakdown, callout, component as newComponent, defaultComp, devicesOf, scene as newScene, starts, text as newText, total, uid, type Comp, type Template } from "./studio/comp";
+import { copyFor, type Copy } from "./studio/copy";
 import { isDark } from "./studio/look";
+import { direct } from "./studio/director";
 import type { Sel } from "./studio/Stage";
 import type { FrameSpec, Resolve, ScreenSpec } from "./studio/view";
 
@@ -125,7 +127,10 @@ const SHORTCUTS: [string, string[]][] = [
 /** The studio's composition, kept between visits (a first visit starts from the old single-shot settings, if any). */
 const loadComp = (): Comp => {
   const c = store.get<Comp | null>("comp", null);
-  if (c?.v === 2 && c.scenes?.length) return { ...c, scenes: c.scenes.map((s) => ({ ...s, layers: s.layers.filter((l) => l.kind !== "component" || byId(l.anim)) })) };
+  // layers whose animation is gone, or of a kind this engine no longer draws, are dropped
+  const kinds = ["device", "component", "image", "text", "breakdown", "callout"];
+  if (c?.v === 2 && c.scenes?.length)
+    return { ...c, scenes: c.scenes.map((s) => ({ ...s, layers: s.layers.filter((l) => kinds.includes(l.kind) && (!("anim" in l) || byId(l.anim))) })) };
   const v = store.get<string>("view", "iphone");
   const old = store.get<{ size?: string; fps?: 30 | 60; backdrop?: string; shadow?: boolean; reflections?: number }>("shot", {});
   const base = defaultComp(v === "compare" ? "iphone" : (v as DeviceId), store.get<Posture>("posture", "open"));
@@ -193,6 +198,10 @@ export default function App() {
   const [undo, setUndo] = useState<{ label: string; run: () => void } | null>(null);
   // Preview: the hairline treatment over the animation
   const [hl, setHl] = useState(false);
+  // the copy writer's lines for what's open, and the brand dialog
+  const [copy, setCopy] = useState<Copy | null>(null);
+  const [writing, setWriting] = useState(false);
+  const [brandOpen, setBrandOpen] = useState(false);
   // the move previews on its own unless the system asks for less motion
   const [playing, setPlaying] = useState(() => !matchMedia("(prefers-reduced-motion: reduce)").matches);
   const exporter = useExport();
@@ -759,25 +768,50 @@ export default function App() {
     },
     // a component on its own: no stand-in app around it, the composition's background behind it
     component: (aid, key, hairline, cs) => frameSpec(byId(aid)!, key, withDefaults(byId(aid)!, overrides[aid]), null, { bare: true, layer: true }, hairline, cs),
+    // a screen taken apart: held still (no demo scroll, so its components stay where they are), whole and reporting
+    // its components, only its grounds, or only one component (the bridge does the cutting)
+    part: (aid, key, which, hairline, cs) => {
+      const a = byId(aid)!;
+      const v = { ...withDefaults(a, overrides[aid]), ...("autoplay" in a.params ? { autoplay: false } : {}) };
+      const f = frameSpec(a, key, v, null, { bare: false, layer: false }, hairline, cs);
+      return { ...f, query: { ...f.query, ...(which === "full" ? { parts: "1" } : { part: String(which) }) } };
+    },
     image: (src) => src,
     dark,
     stepped: false,
     origin: location.origin,
   };
   const liveName = screen ? "the screen you're building" : anim.name;
+  // new animation, new copy
+  useEffect(() => setCopy(null), [id]);
+  const getCopy = async () => {
+    setWriting(true);
+    try {
+      const c = await copyFor(id, { layers: screen ? visible.map((l) => byId(l.anim)!.name) : [], brand: comp.brand?.name });
+      setCopy(c);
+      return c;
+    } finally {
+      setWriting(false);
+    }
+  };
 
   /** Everything the export's own page needs to draw the composition by itself. A still is the picked scene, settled,
       with its camera where it's set (no move), and its screens caught where their library card is. */
   const renderConfig = async (kind: ExportKind): Promise<RenderConfig> => {
     const screens: Record<string, ScreenSpec> = {};
     const components: Record<string, FrameSpec> = {};
-    for (const s of comp.scenes)
+    const looks = direct(comp);
+    for (const [j, s] of comp.scenes.entries())
       for (const l of s.layers) {
         if (l.hidden) continue;
+        const cs = scheme(isDark(looks[j].fill));
         if (l.kind === "device") {
           const sp = studioResolve.screen(l.content, DEVICES.find((d) => d.id === l.device)!, l.id, !!l.hairline);
           screens[l.id] = { ...sp, media: sp.media && { ...sp.media, url: await serverMedia(sp.media.url) } };
-        } else if (l.kind === "component") components[`${s.id}:${l.id}`] = studioResolve.component(l.anim, `${s.id}:${l.id}`, !!l.hairline, scheme(isDark(comp.fill)));
+        } else if (l.kind === "component") components[`${s.id}:${l.id}`] = studioResolve.component(l.anim, `${s.id}:${l.id}`, !!l.hairline, cs);
+        else if (l.kind === "breakdown")
+          for (const w of ["full", "none", ...Array.from({ length: l.max }, (_, i) => i)] as const)
+            components[`${s.id}:${l.id}:${w}`] = studioResolve.part(l.anim, `${s.id}:${l.id}:${w}`, w, l.lines, cs);
       }
     const still = kind === "png";
     const i = comp.scenes.indexOf(cscene);
@@ -829,7 +863,7 @@ export default function App() {
   };
   const addImageLayer = (src: string, file: string, aspect: number) =>
     putLayer({ id: uid(), kind: "image", src, file, aspect, box: { x: 0.5, y: 0.5, w: aspect > 1 ? 0.42 : 0.26 }, radius: 1.2, enter: "rise" });
-  const addToComp = (kind: "scene" | "device" | "component" | "image" | "text", d?: DeviceId) => {
+  const addToComp = (kind: "scene" | "device" | "component" | "breakdown" | "image" | "text" | "callout", d?: DeviceId) => {
     const s = cscene;
     if (kind === "scene") {
       // the next shot keeps the devices and the camera, so it reads as the same story moving on
@@ -855,20 +889,30 @@ export default function App() {
         const frame = devs && s.frame === "center" ? "left" : s.frame;
         putLayer(newComponent(aid, devs ? { x: frame === "right" ? 0.28 : 0.72, y: 0.5, w: 0.3 } : { x: 0.5, y: 0.5, w: 0.4 }), { frame });
       });
+    else if (kind === "breakdown") pickAnim("Take apart", (aid) => putLayer(breakdown(aid, "table")));
     else if (kind === "image") pickImage(addImageLayer);
-    else if (kind === "text") putLayer(newText(anim.name, { x: 0.5, y: 0.12, w: 0.8 }, 4.5));
+    else if (kind === "text") putLayer(newText(copy?.features[0] ?? anim.name, { x: 0.5, y: 0.12, w: 0.8 }, 4.5));
+    else if (kind === "callout") putLayer(callout(copy?.features[0] ?? "Label", "A smaller line", { x: 0.5, y: 0.5 }, { x: 0.2, y: 0.28, w: 0.2 }));
   };
-  const applyTemplate = (t: Template) => {
+  const applyTemplate = async (t: Template) => {
     const old = comp;
-    const made = t.make({ device: shown === "compare" ? "iphone" : shown, posture, name: anim.name, anim: id });
-    setComp(() => ({ ...made, size: made.size !== "16x9" ? made.size : old.size, fps: old.fps }));
+    setTemplates(false);
+    const lines = copy ?? (await getCopy());
+    const ctx = { device: shown === "compare" ? "iphone" : shown, posture, name: anim.name, anim: id, copy: { ...lines, name: comp.brand?.name || lines.name }, brand: comp.brand } as const;
+    const made = t.make(ctx);
+    setComp(() => ({ ...made, size: t.size ?? (made.size !== "16x9" ? made.size : old.size), fps: old.fps }));
     setCsel({ scene: made.scenes[0].id });
     setTemplates(false);
+    // a launch film takes its product's screen, name and accent from what's open
+    const film = t.values?.(ctx);
+    const before = film ? overrides[film.anim] : undefined;
+    if (film) setOverrides((o) => ({ ...o, [film.anim]: { ...o[film.anim], ...film.values } }));
     setUndo({
       label: `Started from “${t.name}”`,
       run: () => {
         setComp(() => old);
         setCsel({ scene: old.scenes[0].id });
+        if (film) setOverrides(({ [film.anim]: _, ...rest }) => (before ? { ...rest, [film.anim]: before } : rest));
         setUndo(null);
       },
     });
@@ -888,7 +932,22 @@ export default function App() {
       undo={undo ?? undefined}
     />
   );
-  const studioInspector = (cols: boolean) => <StudioInspector comp={comp} setComp={setComp} sel={csel} setSel={setCsel} liveName={liveName} pickAnim={pickAnim} pickImage={pickImage} cols={cols} />;
+  const studioInspector = (cols: boolean) => (
+    <StudioInspector
+      comp={comp}
+      setComp={setComp}
+      sel={csel}
+      setSel={setCsel}
+      liveName={liveName}
+      pickAnim={pickAnim}
+      pickImage={pickImage}
+      copy={copy}
+      writing={writing}
+      writeCopy={() => void getCopy()}
+      openBrand={() => setBrandOpen(true)}
+      cols={cols}
+    />
+  );
 
   const studioStage = studio && (
     <Suspense
@@ -1107,7 +1166,8 @@ export default function App() {
         </div>
       </Dialog>
       <AnimPicker open={!!picker} onClose={() => setPicker(null)} onPick={(aid) => picker?.then(aid)} dark={dark} title={picker?.title} />
-      <TemplateDialog open={templates} onClose={() => setTemplates(false)} onPick={applyTemplate} />
+      <TemplateDialog open={templates} onClose={() => setTemplates(false)} onPick={(t) => void applyTemplate(t)} />
+      <BrandDialog key={String(brandOpen)} open={brandOpen} onClose={() => setBrandOpen(false)} brand={comp.brand} onUse={(b) => setComp((c) => ({ ...c, brand: b, auto: true }))} />
       <input
         ref={imageInput}
         type="file"

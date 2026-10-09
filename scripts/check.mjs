@@ -57,4 +57,16 @@ assert.ok(titles(s).some((x) => x === "warn:Animates layout properties: height")
 s = suggest(meta(), {}, { iphone: perf({ dom: [{ kind: "composite", prop: "transform", perSec: 60 }] }) }, [iphone], { ...ctx, reduce: true });
 assert.ok(titles(s).some((x) => x.startsWith("warn:Still moving with reduced motion on")));
 
+// a close-up picks among the components that have plates (the first `max`): one past them has no frame to show
+const { ranked, focusOf } = await import("../src/studio/parts.ts");
+const part = (i, h, key = true) => ({ i, name: `P${i}`, note: "", box: [0, i * 10, 400, h], key: key ? [0, 0, 10, 10] : null });
+const report = { w: 400, h: 800, ground: "#fff", items: [part(0, 40), part(1, 60, false), part(2, 90), part(3, 700), part(4, 300)] };
+assert.deepEqual(ranked(report, 3).map((p) => p.i), [2, 0, 1]); // with a key element first, then by size
+assert.equal(ranked(report, 5).some((p) => p.i === 3), false); // most of the screen is a ground, not a close-up
+assert.equal(focusOf({ max: 3, focus: 0 }, report).idx, 2);
+assert.equal(focusOf({ max: 3, focus: 9 }, report).idx, 2); // past the end falls back to the first
+assert.equal(focusOf({ max: 3, focus: 1, names: ["", "", "", ""] }, report).name, "P0");
+assert.equal(focusOf({ max: 2, focus: 0, names: ["Header"] }, report).name, "Header");
+assert.equal(focusOf({ max: 3, focus: 0 }, undefined), null);
+
 console.log("check: ok");

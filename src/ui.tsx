@@ -5,6 +5,7 @@ import {
   Compass,
   Confetti,
   CreditCard,
+  FilmSlate,
   ForkKnife,
   Layout,
   Robot,
@@ -24,6 +25,7 @@ export const CATEGORY_ICON: Record<Category, Icon> = {
   Celebration: Confetti,
   "UI Patterns": Layout,
   "Swiggy App": ForkKnife,
+  "Launch films": FilmSlate,
 };
 
 export function useMedia(query: string) {
